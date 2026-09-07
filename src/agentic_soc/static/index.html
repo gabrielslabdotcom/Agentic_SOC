@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agentic SOC Analyst</title>
+  <style>
+    :root {
+      --bg: #0e1116;
+      --bg-panel: #161b22;
+      --bg-elevated: #1c2330;
+      --border: #2a3341;
+      --text: #e6edf3;
+      --muted: #8b97a8;
+      --accent: #3d9a6a;
+      --accent-dim: #2a6b4a;
+      --danger: #c45c5c;
+      --warn: #c9a227;
+      --info: #5b8def;
+      --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    body {
+      background-image:
+        radial-gradient(ellipse 80% 50% at 0% 0%, rgba(61, 154, 106, 0.08), transparent 50%),
+        linear-gradient(180deg, #12161d 0%, var(--bg) 40%);
+    }
+
+    a { color: var(--info); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 3rem;
+    }
+
+    header.app-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.25rem;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 1.55rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .brand .tagline {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .header-meta {
+      text-align: right;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-family: var(--mono);
+    }
+
+    .header-meta a { font-family: var(--font); }
+
+    .lab-banner {
+      background: rgba(201, 162, 39, 0.12);
+      border: 1px solid rgba(201, 162, 39, 0.35);
+      color: #e8d48b;
+      padding: 0.55rem 0.85rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.85rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+    }
+
+    .panel-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-elevated);
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    select, input, textarea, button {
+      font-family: inherit;
+      font-size: 0.875rem;
+    }
+
+    select, input[type="text"], textarea {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.55rem;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
+      font-family: var(--mono);
+    }
+
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+    }
+
+    button:hover:not(:disabled) { border-color: var(--muted); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    button.primary {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: #e8fff2;
+    }
+
+    button.danger {
+      background: rgba(196, 92, 92, 0.2);
+      border-color: var(--danger);
+      color: #f0c0c0;
+    }
+
+    button.ghost { background: transparent; }
+
+    .case-list {
+      max-height: calc(100vh - 220px);
+      overflow-y: auto;
+    }
+
+    .case-row {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      padding: 0.75rem 1rem;
+      background: transparent;
+    }
+
+    .case-row:hover { background: rgba(255, 255, 255, 0.03); }
+    .case-row.active {
+      background: rgba(61, 154, 106, 0.1);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .case-row .title {
+      font-weight: 550;
+      margin-bottom: 0.35rem;
+    }
+
+    .case-row .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-family: var(--mono);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border: 1px solid var(--border);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      font-family: var(--mono);
+    }
+
+    .badge.status-open, .badge.status-pending { border-color: var(--info); color: #9bb8f0; }
+    .badge.status-approved { border-color: var(--accent); color: #8fd4b0; }
+    .badge.status-rejected { border-color: var(--danger); color: #e0a0a0; }
+
+    .badge.sev-critical, .badge.sev-high { border-color: var(--danger); color: #f0a8a8; }
+    .badge.sev-medium { border-color: var(--warn); color: #e8d48b; }
+    .badge.sev-low, .badge.sev-info { border-color: var(--muted); color: var(--muted); }
+
+    .badge.disp-true_positive { border-color: var(--danger); color: #f0a8a8; }
+    .badge.disp-suspicious { border-color: var(--warn); color: #e8d48b; }
+    .badge.disp-false_positive { border-color: var(--muted); color: var(--muted); }
+    .badge.disp-informational { border-color: var(--info); color: #9bb8f0; }
+
+    .detail { padding: 1rem; }
+    .detail.empty {
+      color: var(--muted);
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+
+    .detail-title {
+      margin: 0 0 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 0.35rem 0.75rem;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; word-break: break-word; }
+
+    .section {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .section h3 {
+      margin: 0 0 0.6rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .prose {
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .notes li {
+      margin-bottom: 0.65rem;
+      padding-bottom: 0.65rem;
+      border-bottom: 1px solid var(--border);
+      list-style: none;
+    }
+
+    .notes { margin: 0; padding: 0; }
+    .notes .who {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .enrich-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
+    .enrich-row input { flex: 1; min-width: 160px; }
+
+    .toast {
+      position: fixed;
+      bottom: 1.25rem;
+      right: 1.25rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      max-width: 360px;
+      z-index: 50;
+      display: none;
+    }
+
+    .toast.show { display: block; }
+    .toast.error { border-color: var(--danger); }
+    .toast.ok { border-color: var(--accent); }
+
+    .status-line {
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-family: var(--mono);
+    }
+
+    .refresh-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="app-header">
+      <div class="brand">
+        <h1>Agentic SOC Analyst</h1>
+        <p class="tagline">Autonomy triage cases · lab approval console (no containment)</p>
+      </div>
+      <div class="header-meta">
+        <div id="cases-path">Cases DB: …</div>
+        <div id="wazuh-link"><a href="#" target="_blank" rel="noopener">Open Wazuh dashboard</a></div>
+      </div>
+    </header>
+
+    <div class="lab-banner">
+      Lab mode: Approve / Reject records analyst decision only.
+      Containment is never executed from this UI.
+    </div>
+
+    <div class="layout">
+      <aside class="panel">
+        <div class="panel-head">
+          <h2>Cases</h2>
+          <div class="toolbar">
+            <select id="status-filter" aria-label="Filter by status">
+              <option value="">All</option>
+              <option value="open">Open / pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <label class="refresh-toggle">
+              <input type="checkbox" id="auto-refresh" checked />
+              Auto 15s
+            </label>
+            <button type="button" class="ghost" id="btn-refresh">Refresh</button>
+          </div>
+        </div>
+        <div id="case-list" class="case-list">
+          <div class="detail empty">Loading cases…</div>
+        </div>
+        <div class="panel-head" style="border-top:1px solid var(--border); border-bottom:none;">
+          <span class="status-line" id="list-status">—</span>
+        </div>
+      </aside>
+
+      <main class="panel" id="detail-panel">
+        <div class="panel-head">
+          <h2>Case detail</h2>
+        </div>
+        <div id="detail" class="detail empty">Select a case from the list.</div>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script>
+    const REFRESH_MS = 15000;
+    let selectedId = null;
+    let refreshTimer = null;
+    let uiConfig = {};
+
+    function $(id) { return document.getElementById(id); }
+
+    function toast(msg, kind) {
+      const el = $("toast");
+      el.textContent = msg;
+      el.className = "toast show " + (kind || "");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { el.className = "toast"; }, 3500);
+    }
+
+    function badge(cls, text) {
+      if (!text) return "";
+      return `<span class="badge ${cls}">${escapeHtml(String(text))}</span>`;
+    }
+
+    function escapeHtml(s) {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function sevClass(sev) {
+      const s = (sev || "").toLowerCase();
+      return "sev-" + (s || "info");
+    }
+
+    function statusClass(st) {
+      return "status-" + (st || "open").toLowerCase();
+    }
+
+    function dispClass(d) {
+      return "disp-" + (d || "").toLowerCase().replace(/\s+/g, "_");
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, opts);
+      let body = null;
+      try { body = await res.json(); } catch (_) { body = null; }
+      if (!res.ok) {
+        const detail = body && (body.detail || body.error) || res.statusText;
+        const msg = typeof detail === "string" ? detail : JSON.stringify(detail);
+        throw new Error(msg || ("HTTP " + res.status));
+      }
+      return body;
+    }
+
+    async function loadConfig() {
+      try {
+        uiConfig = await api("/tools/ui_config");
+        $("cases-path").textContent = "Cases DB: " + (uiConfig.cases_db_path || "?");
+        const link = $("wazuh-link").querySelector("a");
+        if (uiConfig.wazuh_dashboard_url) {
+          link.href = uiConfig.wazuh_dashboard_url;
+          link.textContent = "Open Wazuh dashboard";
+        } else {
+          link.removeAttribute("href");
+          link.textContent = "Wazuh URL not configured";
+        }
+      } catch (e) {
+        $("cases-path").textContent = "Config unavailable";
+        toast("Failed to load UI config: " + e.message, "error");
+      }
+    }
+
+    async function loadCases() {
+      const status = $("status-filter").value;
+      const q = status ? ("?status=" + encodeURIComponent(status) + "&limit=100") : "?limit=100";
+      try {
+        const data = await api("/tools/list_cases" + q);
+        const cases = data.cases || [];
+        $("list-status").textContent =
+          cases.length + " case(s) · refreshed " + new Date().toLocaleTimeString();
+        renderCaseList(cases);
+        if (selectedId != null) {
+          const still = cases.some((c) => c.id === selectedId);
+          if (still) await loadCaseDetail(selectedId, false);
+        }
+      } catch (e) {
+        $("case-list").innerHTML =
+          `<div class="detail empty">Failed to load cases: ${escapeHtml(e.message)}</div>`;
+        toast(e.message, "error");
+      }
+    }
+
+    function renderCaseList(cases) {
+      if (!cases.length) {
+        $("case-list").innerHTML = `<div class="detail empty">No cases for this filter.</div>`;
+        return;
+      }
+      $("case-list").innerHTML = cases.map((c) => {
+        const active = c.id === selectedId ? " active" : "";
+        return `
+          <button type="button" class="case-row${active}" data-id="${c.id}">
+            <div class="title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</div>
+            <div class="meta">
+              ${badge(statusClass(c.status), c.status)}
+              ${badge(sevClass(c.severity), c.severity)}
+              ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
+              <span>${escapeHtml(c.agent_name || "—")}</span>
+            </div>
+          </button>`;
+      }).join("");
+
+      $("case-list").querySelectorAll(".case-row").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          selectedId = Number(btn.dataset.id);
+          loadCaseDetail(selectedId, true);
+          $("case-list").querySelectorAll(".case-row").forEach((b) => {
+            b.classList.toggle("active", Number(b.dataset.id) === selectedId);
+          });
+        });
+      });
+    }
+
+    async function loadCaseDetail(caseId, scroll) {
+      try {
+        const c = await api("/tools/get_case/" + caseId);
+        let alertBlock = "";
+        if (c.alert_id) {
+          try {
+            const alert = await api("/tools/get_alert/" + encodeURIComponent(c.alert_id));
+            alertBlock = `
+              <div class="section">
+                <h3>Linked Wazuh alert</h3>
+                <div class="prose">${escapeHtml(JSON.stringify(alert, null, 2))}</div>
+              </div>`;
+          } catch (e) {
+            alertBlock = `
+              <div class="section">
+                <h3>Linked Wazuh alert</h3>
+                <p class="status-line">Could not load alert ${escapeHtml(c.alert_id)}: ${escapeHtml(e.message)}</p>
+              </div>`;
+          }
+        }
+
+        const notes = (c.notes || []).slice().reverse();
+        const notesHtml = notes.length
+          ? `<ul class="notes">${notes.map((n) => `
+              <li>
+                <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
+                <div class="prose" style="max-height:120px">${escapeHtml(n.note || "")}</div>
+              </li>`).join("")}</ul>`
+          : `<p class="status-line">No notes yet.</p>`;
+
+        $("detail").className = "detail";
+        $("detail").innerHTML = `
+          <h2 class="detail-title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</h2>
+          <div style="margin-bottom:0.75rem">
+            ${badge(statusClass(c.status), c.status)}
+            ${badge(sevClass(c.severity), c.severity)}
+            ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
+          </div>
+          <dl class="kv">
+            <dt>Agent</dt><dd>${escapeHtml(c.agent_name || "—")}</dd>
+            <dt>Alert ID</dt><dd>${escapeHtml(c.alert_id || "—")}</dd>
+            <dt>Created</dt><dd>${escapeHtml(c.created_at || "—")}</dd>
+            <dt>Updated</dt><dd>${escapeHtml(c.updated_at || "—")}</dd>
+          </dl>
+          <div class="section">
+            <h3>Summary</h3>
+            <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
+          </div>
+          <div class="section">
+            <h3>Recommended action</h3>
+            <div class="prose">${escapeHtml(c.recommended_action || "(none)")}</div>
+          </div>
+          ${alertBlock}
+          <div class="section">
+            <h3>Analyst decision</h3>
+            <label for="decision-note" class="status-line">Note (optional)</label>
+            <textarea id="decision-note" placeholder="Why approve or reject…"></textarea>
+            <div class="actions">
+              <button type="button" class="primary" id="btn-approve">Approve</button>
+              <button type="button" class="danger" id="btn-reject">Reject</button>
+            </div>
+            <p class="status-line" style="margin-top:0.5rem">
+              Same path as <code>approve_case.py</code> — status + notes only; no containment.
+            </p>
+          </div>
+          <div class="section">
+            <h3>Enrich IOC</h3>
+            <div class="enrich-row">
+              <input type="text" id="ioc-input" placeholder="IP, domain, URL, or hash" />
+              <button type="button" id="btn-enrich">Enrich</button>
+            </div>
+            <pre class="prose" id="enrich-out" style="margin-top:0.5rem; display:none"></pre>
+          </div>
+          <div class="section">
+            <h3>Notes</h3>
+            ${notesHtml}
+          </div>
+        `;
+
+        $("btn-approve").onclick = () => decide(caseId, true);
+        $("btn-reject").onclick = () => decide(caseId, false);
+        $("btn-enrich").onclick = () => enrichIoc();
+
+        if (scroll) $("detail-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) {
+        $("detail").className = "detail empty";
+        $("detail").textContent = "Failed to load case: " + e.message;
+        toast(e.message, "error");
+      }
+    }
+
+    async function decide(caseId, approved) {
+      const note = ($("decision-note") && $("decision-note").value) || "";
+      try {
+        await api("/tools/approve_case/" + caseId, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approved, note, author: "dashboard" }),
+        });
+        toast(approved ? "Case approved (no containment)." : "Case rejected.", "ok");
+        await loadCases();
+        await loadCaseDetail(caseId, false);
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    async function enrichIoc() {
+      const ioc = ($("ioc-input") && $("ioc-input").value.trim()) || "";
+      if (!ioc) {
+        toast("Enter an IOC first", "error");
+        return;
+      }
+      const out = $("enrich-out");
+      out.style.display = "block";
+      out.textContent = "Looking up…";
+      try {
+        const data = await api("/tools/enrich_ioc?ioc=" + encodeURIComponent(ioc));
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        out.textContent = "Error: " + e.message;
+        toast(e.message, "error");
+      }
+    }
+
+    function scheduleRefresh() {
+      clearInterval(refreshTimer);
+      if ($("auto-refresh").checked) {
+        refreshTimer = setInterval(loadCases, REFRESH_MS);
+      }
+    }
+
+    $("status-filter").addEventListener("change", loadCases);
+    $("btn-refresh").addEventListener("click", loadCases);
+    $("auto-refresh").addEventListener("change", scheduleRefresh);
+
+    loadConfig().then(() => {
+      loadCases();
+      scheduleRefresh();
+    });
+  </script>
+</body>
+</html>

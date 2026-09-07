@@ -1,0 +1,19 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/*.db
+data/*.sqlite
+data/*.json
+!data/.gitkeep
+*.egg-info/
+dist/
+build/
+.DS_Store
+# Keep project MCP config; never commit secrets into it
+!.cursor/
+!.cursor/mcp.json
