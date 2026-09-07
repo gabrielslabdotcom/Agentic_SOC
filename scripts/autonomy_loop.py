@@ -213,6 +213,19 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             action=judgment["recommended_action"],
             rationale="; ".join(judgment.get("reasons") or ["autonomous triage"]),
         )
+        try:
+            corr = tools.correlate_alert(
+                alert,
+                case_id=case["id"],
+                alert_id=alert_id or None,
+            )
+            LOG.info(
+                "correlated case #%s entities=%s",
+                case["id"],
+                corr.get("count"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("entity correlation failed case #%s: %s", case["id"], exc)
         opened += 1
         if alert_id:
             known_cases.add(alert_id)
@@ -247,7 +260,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             "analyst_next_steps": (
                 "1) Open Wazuh dashboard and confirm this alert/rule\n"
                 "2) Check source IP / IOCs (lab scan vs unknown)\n"
-                "3) Approve to document, or reject if noise — no containment runs"
+                "3) Approve = accept triage (document only). "
+                "Reject = noise / wrong proposal. Neither runs containment."
             ),
         }
         report["cases_opened"].append(case_info)

@@ -158,7 +158,20 @@ def _resolve_config(settings: Optional[Settings] = None) -> dict[str, Any]:
         or DEFAULT_STARTING_REF,
         "api_url": (settings.agentic_soc_api_url or "").strip(),
         "cloud_pool": (settings.cursor_cloud_pool or "").strip(),
+        "norepo_fallback": bool(settings.cursor_agent_norepo_fallback),
     }
+
+
+def _is_scm_access_error(message: str) -> bool:
+    text = (message or "").lower()
+    needles = (
+        "scm integration does not have access",
+        "does not have access to repository",
+        "error_github_app_no_access",
+        "repo_not_accessible",
+        "cannot access repository",
+    )
+    return any(n in text for n in needles)
 
 
 def _run_cloud_prompt(prompt: str, cfg: dict[str, Any]) -> dict[str, Any]:
@@ -206,22 +219,49 @@ def _run_cloud_prompt(prompt: str, cfg: dict[str, Any]) -> dict[str, Any]:
     if env_vars:
         cloud_kwargs["env_vars"] = env_vars
 
-    try:
-        result = Agent.prompt(
+    def _prompt(kwargs: dict[str, Any]) -> Any:
+        return Agent.prompt(
             prompt,
             AgentOptions(
                 api_key=cfg["api_key"],
                 model=cfg["model"],
-                cloud=CloudAgentOptions(**cloud_kwargs),
+                cloud=CloudAgentOptions(**kwargs),
             ),
         )
+
+    try:
+        result = _prompt(cloud_kwargs)
     except CursorAgentError as err:
-        return {
-            "ok": False,
-            "error": getattr(err, "message", str(err)),
-            "retryable": bool(getattr(err, "is_retryable", False)),
-            "kind": "startup",
-        }
+        msg = str(getattr(err, "message", "") or err)
+        if (
+            cfg.get("norepo_fallback")
+            and repo_url
+            and _is_scm_access_error(msg)
+        ):
+            LOG.warning(
+                "GitHub/SCM cannot access %s — retrying no-repo cloud agent. "
+                "Grant the Cursor GitHub App access to that repo to clone playbooks.",
+                repo_url,
+            )
+            fallback = dict(cloud_kwargs)
+            fallback["repos"] = []
+            try:
+                result = _prompt(fallback)
+            except CursorAgentError as err2:
+                return {
+                    "ok": False,
+                    "error": getattr(err2, "message", str(err2)),
+                    "retryable": bool(getattr(err2, "is_retryable", False)),
+                    "kind": "startup",
+                    "scm_fallback": True,
+                }
+        else:
+            return {
+                "ok": False,
+                "error": getattr(err, "message", str(err)),
+                "retryable": bool(getattr(err, "is_retryable", False)),
+                "kind": "startup",
+            }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc), "kind": "unexpected"}
 

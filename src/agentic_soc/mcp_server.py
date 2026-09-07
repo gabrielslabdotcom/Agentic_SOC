@@ -122,6 +122,54 @@ async def enrich_ioc(ioc: str, ioc_type: Optional[str] = None) -> str:
     return _json(await get_tools().enrich_ioc(ioc=ioc, ioc_type=ioc_type))
 
 
+@mcp.tool(name="upsert_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
+async def upsert_entity(entity_type: str, value: str) -> str:
+    """Insert or refresh a SQLite entity (ip, user, host, hash, domain)."""
+    return _json(get_tools().upsert_entity(entity_type, value))
+
+
+@mcp.tool(name="link_alert_to_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
+async def link_alert_to_entity(
+    entity_id: int,
+    alert_id: str,
+    case_id: Optional[int] = None,
+) -> str:
+    """Link an entity to a Wazuh alert (and optionally a case)."""
+    return _json(get_tools().link_alert_to_entity(entity_id, alert_id, case_id=case_id))
+
+
+@mcp.tool(name="link_case_to_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
+async def link_case_to_entity(
+    entity_id: int,
+    case_id: int,
+    alert_id: Optional[str] = None,
+) -> str:
+    """Link an entity to a local case (and optionally an alert)."""
+    return _json(get_tools().link_case_to_entity(entity_id, case_id, alert_id=alert_id))
+
+
+@mcp.tool(name="find_related", annotations={"readOnlyHint": True, "destructiveHint": False})
+async def find_related(
+    case_id: Optional[int] = None,
+    alert_id: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    value: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    include_hosts: bool = False,
+) -> str:
+    """Find cases/alerts that share SQLite entities (same IP, hash, user, domain)."""
+    return _json(
+        get_tools().find_related(
+            case_id=case_id,
+            alert_id=alert_id,
+            entity_type=entity_type,
+            value=value,
+            entity_id=entity_id,
+            include_hosts=include_hosts,
+        )
+    )
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

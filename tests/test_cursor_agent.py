@@ -200,6 +200,49 @@ def test_sdk_startup_error_fail_soft():
     assert "auth failed" in str(out.get("error") or "")
 
 
+def test_scm_access_error_retries_norepo():
+    settings = Settings(
+        cursor_api_key="cursor_test_key",
+        cursor_agent_repo="https://github.com/example/Agentic_SOC",
+        cursor_agent_norepo_fallback=True,
+        wazuh_api_password="x",
+        wazuh_indexer_password="x",
+    )
+
+    class ScmErr(Exception):
+        message = (
+            "[validation_error] The SCM integration does not have access to "
+            "repository example/Agentic_SOC to verify branch existence."
+        )
+        is_retryable = False
+
+    fake_result = SimpleNamespace(
+        status="finished",
+        id="run-2",
+        agent_id="bc-def",
+        result="no-repo ok",
+    )
+    mock_agent = MagicMock()
+    mock_agent.prompt.side_effect = [ScmErr("scm"), fake_result]
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "cursor_sdk": MagicMock(
+                Agent=mock_agent,
+                AgentOptions=MagicMock(),
+                CloudAgentOptions=MagicMock(),
+                CloudRepository=MagicMock(),
+                CursorAgentError=ScmErr,
+            )
+        },
+    ):
+        out = kick_cursor_investigation(_case(), settings=settings, wait=True)
+
+    assert out["ok"] is True
+    assert mock_agent.prompt.call_count == 2
+
+
 def test_maybe_kick_never_raises(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTONOMY_CURSOR_AGENT", "true")
     settings = Settings(

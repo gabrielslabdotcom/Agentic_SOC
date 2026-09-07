@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     cursor_agent_model: str = "composer-2.5"
     cursor_agent_repo: str = ""
     cursor_agent_starting_ref: str = "main"
+    # If the GitHub App cannot see CURSOR_AGENT_REPO, retry as no-repo (case payload only).
+    cursor_agent_norepo_fallback: bool = True
     # Public URL the cloud agent can PATCH (e.g. tunnel) or http://127.0.0.1:8080
     # when using a self-hosted pool worker on Pop.
     agentic_soc_api_url: str = ""

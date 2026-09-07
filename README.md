@@ -9,19 +9,23 @@ AI-first SOC lab: **Wazuh** for detection, **agents + tools** for triage and inv
 ```text
 Pop!_OS laptop (192.168.50.254)
   ├── Wazuh Docker single-node  (manager :55000, indexer :9200, dashboard :443)
-  └── native wazuh-agent        (host telemetry → manager)
+  ├── native wazuh-agent        (host telemetry → manager)
+  ├── autonomy systemd          (Discord + Cursor cloud hook → laptop cases.sqlite)
+  └── FastAPI analyst UI        (127.0.0.1:8080 — live Pop cases)
 
 This Mac (Cursor / agent plane)
-  └── Agentic_SOC               (Wazuh client, case store, MCP tools, VT enrichment)
+  └── Agentic_SOC               (MCP, local cases.sqlite — a separate copy)
+      ssh -L 8080:127.0.0.1:8080 soc   → view Pop / Discord cases
 ```
 
 ## Lab endpoints (laptop)
 
 | Service | URL |
 |---------|-----|
-| Dashboard | https://192.168.50.254 |
+| Wazuh dashboard | https://192.168.50.254 |
 | Manager API | https://192.168.50.254:55000 |
 | Indexer | https://192.168.50.254:9200 |
+| Analyst UI (Pop cases) | `ssh -L 8080:127.0.0.1:8080 soc` → http://127.0.0.1:8080/ |
 
 Default **lab-only** credentials (change before any non-lab use):
 
@@ -49,17 +53,22 @@ python scripts/agent_triage.py --min-level 5 --max-cases 8
 python scripts/eval_triage.py
 ```
 
-Optional HTTP tool API + analyst dashboard:
+Analyst dashboard (two DBs — they are not synced):
+
+| Cases you want | How |
+|----------------|-----|
+| **Live Discord / autonomy cases on Pop** | `ssh -L 8080:127.0.0.1:8080 soc` then http://127.0.0.1:8080/ (Pop `agentic-soc-dashboard` on `127.0.0.1:8080`, DB `/home/admin/Agentic_SOC/data/cases.sqlite`) |
+| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` |
 
 ```bash
+# Mac-local API only (not the Discord/autonomy DB)
 cd /Users/admin/Documents/Agentic_SOC
 source .venv/bin/activate
 uvicorn agentic_soc.api:app --reload --port 8080
-# Dashboard: http://127.0.0.1:8080/  or  http://127.0.0.1:8080/dashboard/
-# OpenAPI:   http://127.0.0.1:8080/docs
+# OpenAPI: http://127.0.0.1:8080/docs
 ```
 
-The dashboard lists SQLite cases, loads linked Wazuh alerts, and supports **Approve** / **Reject** (same lab-safe path as `approve_case.py` — no containment). Default `CASES_DB_PATH` is this Mac’s `data/cases.sqlite`; Pop!_OS autonomy cases are separate unless you point the API at the laptop DB or sync.
+**Approve / Reject** record status + a note only (same as `approve_case.py`). No containment. The dashboard glossary and Discord embed field say the same thing. Case detail also shows **Related cases** via SQLite `find_related` (same source IP / hash / user / domain).
 
 ## Cursor MCP
 
@@ -79,6 +88,7 @@ Project config is at [`.cursor/mcp.json`](.cursor/mcp.json). In Cursor: **Settin
 | `open_case` / `get_case` / `update_case` / `list_cases` | Local SQLite case memory |
 | `propose_action` | Log-only response recommendation (no auto-containment) |
 | `approve_case` | Human approve/reject (status + notes only; no containment) |
+| `upsert_entity` / `link_alert_to_entity` / `link_case_to_entity` / `find_related` | SQLite entity correlation (not Neo4j) |
 | `enrich_ioc` | VirusTotal lookup for ip / domain / url / hash |
 
 ## Closed-loop triage
@@ -114,35 +124,32 @@ python scripts/approve_case.py --case-id 1 --approve --note "looks like lab scan
 python scripts/approve_case.py --case-id 1 --reject --note "noise"
 ```
 
-Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/test_triage.py tests/test_api_cases.py tests/test_cursor_agent.py`.
+Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/test_triage.py tests/test_api_cases.py tests/test_entities.py tests/test_cursor_agent.py`.
 
-## Discord + Pop!_OS autonomy
+## Discord + Pop!_OS autonomy (already live)
+
+Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval (record-only Approve / Reject).
 
 ```bash
-# In .env: DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-python scripts/check_discord.py
-
-# Continuous triage on the laptop (systemd) — see SETUP_GUIDE §12
-# python scripts/autonomy_loop.py --once
+# Logs / one-shot (do not overwrite Pop .env)
+ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
+# If systemctl restart hangs on SIGTERM: kill then start — SETUP_GUIDE §12.3
 ```
 
-New cases from the autonomy service post to Discord and stay **pending human approval**.
+Open live cases from the Mac: `ssh -L 8080:127.0.0.1:8080 soc` → http://127.0.0.1:8080/
 
-## Mac-offline LLM (Cursor cloud)
+## Mac-offline LLM (Cursor cloud — already enabled)
 
-Optional propose-only investigation via the Cursor Python SDK cloud runtime, kicked from Pop `autonomy_loop` after Discord notify. **Not** Automations / Neo4j / Hydra; **no** auto-containment. Public cloud cannot reach LAN Wazuh without a tunnel or self-hosted pool — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
+Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. Repo `https://github.com/gabrielslabdotcom/Agentic_SOC`; Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Not** Automations / Neo4j / **Hydra** (Hydra breaks `sshd`). **No** auto-containment. Public cloud cannot reach LAN Wazuh without a tunnel or self-hosted pool — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
 
 ```bash
-# On Pop (after sync):
-pip install -e '.[cursor]'
-# .env: AUTONOMY_CURSOR_AGENT=true, CURSOR_API_KEY=..., CURSOR_AGENT_REPO=https://github.com/...
-python scripts/autonomy_loop.py --once --cursor-dry-run
+# Dry-run on Pop (no need to re-set keys)
+ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
 ```
 
 ## Next steps
 
-1. Paste `DISCORD_WEBHOOK_URL` into `.env` on Mac and Pop!_OS; run `check_discord.py`.
-2. Keep the Pop!_OS `agentic-soc-autonomy` service running; approve cases from Discord pings.
-3. Optional: enable Cursor cloud investigation (§13) with `CURSOR_API_KEY` + `CURSOR_AGENT_REPO` on Pop.
-4. Grow the labeled eval set; then SQLite entity correlation if multi-alert linking is needed.
-5. Defer Neo4j / SOAR / Security Onion until triage is reliable.
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings and Approve / Reject via the tunneled dashboard (record-only).
+2. Grow the labeled eval set (`evals/labeled_alerts.json`).
+3. Entity correlation is SQLite (`find_related`). Defer Neo4j until multi-hop / volume / relationship types outgrow it.
+4. Defer SOAR / Security Onion until triage stays reliable. Do not enable Hydra.

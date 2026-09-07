@@ -117,7 +117,16 @@ class DiscordNotifier:
         next_steps = case.get("analyst_next_steps") or (
             "1) Confirm alert in Wazuh dashboard\n"
             "2) Review IOCs / full_log below\n"
-            "3) Approve or reject via CLI (containment is NOT auto-run)"
+            "3) Record Approve or Reject (see labels) — no containment runs"
+        )
+        decision_legend = (
+            "**Approve** records that you accept the triage "
+            "(disposition + recommended action) as the investigation outcome. "
+            "Case status becomes `approved`; a note is stored. "
+            "**No firewall, isolation, or other containment is executed.**\n"
+            "**Reject** records that this is noise, a duplicate, or the proposal is wrong. "
+            "Case status becomes `rejected`; a note is stored. "
+            "**Also does not execute containment.**"
         )
 
         fields = [
@@ -137,8 +146,21 @@ class DiscordNotifier:
                 inline=False,
             ),
             _field("Analyst next steps", next_steps, inline=False, limit=900),
-            _field("Approve", f"`{approve_cmd}`", inline=False, limit=900),
-            _field("Reject", f"`{reject_cmd}`", inline=False, limit=900),
+            _field("What Approve / Reject records", decision_legend, inline=False, limit=1024),
+            _field(
+                "Approve (CLI)",
+                "Accept triage & document — status=`approved`, note only.\n"
+                f"`{approve_cmd}`",
+                inline=False,
+                limit=900,
+            ),
+            _field(
+                "Reject (CLI)",
+                "Mark noise / decline proposal — status=`rejected`, note only.\n"
+                f"`{reject_cmd}`",
+                inline=False,
+                limit=900,
+            ),
         ]
         if snippet:
             fields.append(_field("Log snippet", f"```{snippet[:900]}```", inline=False, limit=1000))

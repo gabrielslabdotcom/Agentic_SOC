@@ -6,6 +6,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
+# host is stored for inventory, but case-to-case expansion ignores it so every
+# alert on pop-os-native does not show up as "related".
+_FOLLOW_TYPES_FROM_CASE = frozenset({"ip", "user", "hash", "domain"})
+
+
+def normalize_entity(entity_type: str, value: str) -> tuple[str, str]:
+    et = (entity_type or "").strip().lower()
+    val = (value or "").strip()
+    if et in {"hash", "domain"}:
+        val = val.lower()
+    return et, val
+
 
 class CaseStore:
     """Simple SQLite case memory for agent triage (lab-local, not a SOAR)."""
@@ -46,6 +59,32 @@ class CaseStore:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(case_id) REFERENCES cases(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS entities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(entity_type, value)
+                );
+
+                CREATE TABLE IF NOT EXISTS entity_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_id INTEGER NOT NULL,
+                    alert_id TEXT,
+                    case_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(entity_id) REFERENCES entities(id),
+                    FOREIGN KEY(case_id) REFERENCES cases(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_entity_links_entity
+                    ON entity_links(entity_id);
+                CREATE INDEX IF NOT EXISTS idx_entity_links_case
+                    ON entity_links(case_id);
+                CREATE INDEX IF NOT EXISTS idx_entity_links_alert
+                    ON entity_links(alert_id);
                 """
             )
 
@@ -204,3 +243,221 @@ class CaseStore:
             note=audit,
             author=author,
         )
+
+    def upsert_entity(self, entity_type: str, value: str) -> dict[str, Any]:
+        """Insert or refresh an entity (ip / user / host / hash / domain)."""
+        et, val = normalize_entity(entity_type, value)
+        if et not in ENTITY_TYPES:
+            return {"error": "invalid entity_type", "entity_type": entity_type}
+        if not val:
+            return {"error": "empty entity value"}
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO entities (entity_type, value, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(entity_type, value) DO UPDATE SET updated_at = excluded.updated_at
+                """,
+                (et, val, now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM entities WHERE entity_type = ? AND value = ?",
+                (et, val),
+            ).fetchone()
+        return dict(row)
+
+    def link_alert_to_entity(
+        self,
+        entity_id: int,
+        alert_id: str,
+        *,
+        case_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Link an entity to a Wazuh alert_id (and optionally a case)."""
+        return self._link_entity(entity_id, alert_id=alert_id, case_id=case_id)
+
+    def link_case_to_entity(
+        self,
+        entity_id: int,
+        case_id: int,
+        *,
+        alert_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Link an entity to a local case (and optionally an alert_id)."""
+        return self._link_entity(entity_id, alert_id=alert_id, case_id=case_id)
+
+    def _link_entity(
+        self,
+        entity_id: int,
+        *,
+        alert_id: Optional[str] = None,
+        case_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        aid = (alert_id or "").strip() or None
+        if not aid and case_id is None:
+            return {"error": "alert_id or case_id required"}
+        with self._connect() as conn:
+            ent = conn.execute("SELECT id FROM entities WHERE id = ?", (entity_id,)).fetchone()
+            if not ent:
+                return {"error": "entity not found", "entity_id": entity_id}
+            if case_id is not None:
+                case = conn.execute("SELECT id FROM cases WHERE id = ?", (case_id,)).fetchone()
+                if not case:
+                    return {"error": "case not found", "id": case_id}
+            existing = conn.execute(
+                """
+                SELECT * FROM entity_links
+                WHERE entity_id = ?
+                  AND ifnull(alert_id, '') = ifnull(?, '')
+                  AND ifnull(case_id, 0) = ifnull(?, 0)
+                """,
+                (entity_id, aid, case_id),
+            ).fetchone()
+            if existing:
+                return dict(existing)
+            cur = conn.execute(
+                """
+                INSERT INTO entity_links (entity_id, alert_id, case_id, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (entity_id, aid, case_id, self._now()),
+            )
+            row = conn.execute(
+                "SELECT * FROM entity_links WHERE id = ?",
+                (cur.lastrowid,),
+            ).fetchone()
+        return dict(row)
+
+    def find_related(
+        self,
+        *,
+        case_id: Optional[int] = None,
+        alert_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        value: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        include_hosts: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Find other cases (and alert ids) that share entities with the seed.
+
+        Seed with case_id, alert_id, entity_id, or entity_type+value.
+        From a case/alert, host entities are skipped unless include_hosts=True
+        so agent name does not relate every case on the same host.
+        """
+        aid = (alert_id or "").strip() or None
+        et, val = normalize_entity(entity_type or "", value or "")
+        if entity_id is None and case_id is None and not aid and not (et and val):
+            return {"error": "provide case_id, alert_id, entity_id, or entity_type+value"}
+
+        follow_types = ENTITY_TYPES if include_hosts else _FOLLOW_TYPES_FROM_CASE
+        explicit_entity = entity_id is not None or bool(et and val)
+
+        with self._connect() as conn:
+            seed_ids: set[int] = set()
+            if entity_id is not None:
+                row = conn.execute("SELECT id FROM entities WHERE id = ?", (entity_id,)).fetchone()
+                if row:
+                    seed_ids.add(int(row["id"]))
+            if et and val:
+                row = conn.execute(
+                    "SELECT id FROM entities WHERE entity_type = ? AND value = ?",
+                    (et, val),
+                ).fetchone()
+                if row:
+                    seed_ids.add(int(row["id"]))
+            if case_id is not None:
+                for row in conn.execute(
+                    "SELECT entity_id FROM entity_links WHERE case_id = ?",
+                    (case_id,),
+                ):
+                    seed_ids.add(int(row["entity_id"]))
+            if aid:
+                for row in conn.execute(
+                    "SELECT entity_id FROM entity_links WHERE alert_id = ?",
+                    (aid,),
+                ):
+                    seed_ids.add(int(row["entity_id"]))
+
+            if not seed_ids:
+                return {
+                    "entities": [],
+                    "related_cases": [],
+                    "related_alert_ids": [],
+                    "count": 0,
+                }
+
+            placeholders = ",".join("?" * len(seed_ids))
+            entity_rows = conn.execute(
+                f"SELECT * FROM entities WHERE id IN ({placeholders})",
+                tuple(seed_ids),
+            ).fetchall()
+            entities = [dict(r) for r in entity_rows]
+            entity_by_id = {int(e["id"]): e for e in entities}
+
+            if not explicit_entity:
+                walk_ids = [
+                    eid
+                    for eid, e in entity_by_id.items()
+                    if e.get("entity_type") in follow_types
+                ]
+            else:
+                walk_ids = list(seed_ids)
+
+            if not walk_ids:
+                return {
+                    "entities": entities,
+                    "related_cases": [],
+                    "related_alert_ids": [],
+                    "count": 0,
+                }
+
+            walk_ph = ",".join("?" * len(walk_ids))
+            links = conn.execute(
+                f"SELECT * FROM entity_links WHERE entity_id IN ({walk_ph})",
+                tuple(walk_ids),
+            ).fetchall()
+
+            related_case_ids: set[int] = set()
+            related_alert_ids: set[str] = set()
+            case_entity_ids: dict[int, set[int]] = {}
+            for link in links:
+                lid = int(link["entity_id"])
+                if link["case_id"] is not None:
+                    cid = int(link["case_id"])
+                    if case_id is None or cid != int(case_id):
+                        related_case_ids.add(cid)
+                        case_entity_ids.setdefault(cid, set()).add(lid)
+                if link["alert_id"]:
+                    laid = str(link["alert_id"])
+                    if aid is None or laid != aid:
+                        related_alert_ids.add(laid)
+
+            related_cases: list[dict[str, Any]] = []
+            if related_case_ids:
+                cph = ",".join("?" * len(related_case_ids))
+                crows = conn.execute(
+                    f"SELECT * FROM cases WHERE id IN ({cph}) ORDER BY id DESC",
+                    tuple(related_case_ids),
+                ).fetchall()
+                for crow in crows:
+                    item = dict(crow)
+                    matched = [
+                        {
+                            "id": entity_by_id[eid]["id"],
+                            "entity_type": entity_by_id[eid]["entity_type"],
+                            "value": entity_by_id[eid]["value"],
+                        }
+                        for eid in sorted(case_entity_ids.get(int(crow["id"]), set()))
+                        if eid in entity_by_id
+                    ]
+                    item["matched_entities"] = matched
+                    related_cases.append(item)
+
+        return {
+            "entities": entities,
+            "related_cases": related_cases,
+            "related_alert_ids": sorted(related_alert_ids),
+            "count": len(related_cases),
+        }

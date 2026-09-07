@@ -54,6 +54,23 @@ class ApproveCaseBody(BaseModel):
     author: str = "human"
 
 
+class UpsertEntityBody(BaseModel):
+    entity_type: str
+    value: str
+
+
+class LinkAlertEntityBody(BaseModel):
+    entity_id: int
+    alert_id: str
+    case_id: Optional[int] = None
+
+
+class LinkCaseEntityBody(BaseModel):
+    entity_id: int
+    case_id: int
+    alert_id: Optional[str] = None
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -71,8 +88,9 @@ def ui_config() -> dict[str, Any]:
         "lab_mode": True,
         "containment_enabled": False,
         "note": (
-            "Cases DB is local to this API process. Mac and laptop paths are separate "
-            "unless CASES_DB_PATH points at the same file or you sync."
+            "Cases DB is local to this API process. Pop autonomy/Discord cases live in "
+            "/home/admin/Agentic_SOC/data/cases.sqlite (tunnel: ssh -L 8080:127.0.0.1:8080 soc). "
+            "The Mac copy is a separate file."
         ),
     }
 
@@ -165,6 +183,60 @@ def propose_action(case_id: int, body: ProposeActionBody) -> dict[str, Any]:
     )
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.post("/tools/upsert_entity")
+def upsert_entity(body: UpsertEntityBody) -> dict[str, Any]:
+    result = get_tools().upsert_entity(body.entity_type, body.value)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result)
+    return result
+
+
+@app.post("/tools/link_alert_to_entity")
+def link_alert_to_entity(body: LinkAlertEntityBody) -> dict[str, Any]:
+    result = get_tools().link_alert_to_entity(
+        body.entity_id,
+        body.alert_id,
+        case_id=body.case_id,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.post("/tools/link_case_to_entity")
+def link_case_to_entity(body: LinkCaseEntityBody) -> dict[str, Any]:
+    result = get_tools().link_case_to_entity(
+        body.entity_id,
+        body.case_id,
+        alert_id=body.alert_id,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.get("/tools/find_related")
+def find_related(
+    case_id: Optional[int] = None,
+    alert_id: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    value: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    include_hosts: bool = False,
+) -> dict[str, Any]:
+    result = get_tools().find_related(
+        case_id=case_id,
+        alert_id=alert_id,
+        entity_type=entity_type,
+        value=value,
+        entity_id=entity_id,
+        include_hosts=include_hosts,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result)
     return result
 
 

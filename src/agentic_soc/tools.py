@@ -7,7 +7,22 @@ from typing import Any, Optional
 from agentic_soc.cases import CaseStore
 from agentic_soc.config import Settings, get_settings
 from agentic_soc.enrichment import VirusTotalClient
+from agentic_soc.triage import extract_iocs, extract_source_ip
 from agentic_soc.wazuh_client import WazuhClient
+
+_IOC_TO_ENTITY = {"ip": "ip", "hash": "hash", "domain": "domain"}
+
+
+def _extract_user(alert: dict[str, Any]) -> Optional[str]:
+    raw = alert.get("raw")
+    if isinstance(raw, dict):
+        data = raw.get("data")
+        if isinstance(data, dict):
+            for key in ("srcuser", "dstuser", "user"):
+                val = data.get(key)
+                if val:
+                    return str(val).strip()
+    return None
 
 
 class SocTools:
@@ -127,6 +142,97 @@ class SocTools:
     ) -> dict[str, Any]:
         """Enrich an IOC via VirusTotal (ip / domain / url / hash)."""
         return await self.vt.lookup(ioc, ioc_type=ioc_type)
+
+    def upsert_entity(self, entity_type: str, value: str) -> dict[str, Any]:
+        return self.cases.upsert_entity(entity_type, value)
+
+    def link_alert_to_entity(
+        self,
+        entity_id: int,
+        alert_id: str,
+        *,
+        case_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        return self.cases.link_alert_to_entity(entity_id, alert_id, case_id=case_id)
+
+    def link_case_to_entity(
+        self,
+        entity_id: int,
+        case_id: int,
+        *,
+        alert_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.cases.link_case_to_entity(entity_id, case_id, alert_id=alert_id)
+
+    def find_related(
+        self,
+        *,
+        case_id: Optional[int] = None,
+        alert_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        value: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        include_hosts: bool = False,
+    ) -> dict[str, Any]:
+        return self.cases.find_related(
+            case_id=case_id,
+            alert_id=alert_id,
+            entity_type=entity_type,
+            value=value,
+            entity_id=entity_id,
+            include_hosts=include_hosts,
+        )
+
+    def correlate_alert(
+        self,
+        alert: dict[str, Any],
+        *,
+        case_id: Optional[int] = None,
+        alert_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Upsert source IP / agent host / user / IOCs and link them to the case/alert.
+
+        Used by autonomy on case open so a later nmap from the same Kali IP
+        shows related cases via find_related.
+        """
+        aid = (alert_id or alert.get("id") or "")
+        aid = str(aid).strip() or None
+        linked: list[dict[str, Any]] = []
+
+        def _link(entity: dict[str, Any]) -> None:
+            if entity.get("error") or not entity.get("id"):
+                linked.append(entity)
+                return
+            if aid and case_id is not None:
+                result = self.link_alert_to_entity(int(entity["id"]), aid, case_id=case_id)
+            elif aid:
+                result = self.link_alert_to_entity(int(entity["id"]), aid)
+            elif case_id is not None:
+                result = self.link_case_to_entity(int(entity["id"]), case_id)
+            else:
+                result = {"error": "alert_id or case_id required"}
+            linked.append({"entity": entity, "link": result})
+
+        src = extract_source_ip(alert)
+        if src:
+            _link(self.upsert_entity("ip", src))
+
+        host = alert.get("agent") or alert.get("agent_name")
+        if host:
+            _link(self.upsert_entity("host", str(host)))
+
+        user = _extract_user(alert)
+        if user:
+            _link(self.upsert_entity("user", user))
+
+        for item in extract_iocs(alert):
+            kind = _IOC_TO_ENTITY.get(item.get("ioc_type") or "")
+            ioc = item.get("ioc")
+            if kind and ioc:
+                _link(self.upsert_entity(kind, ioc))
+
+        return {"linked": linked, "count": len(linked)}
 
 
 _tools: Optional[SocTools] = None

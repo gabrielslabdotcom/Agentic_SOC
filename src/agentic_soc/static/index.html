@@ -89,6 +89,35 @@
       font-size: 0.85rem;
     }
 
+    .decision-legend {
+      display: grid;
+      gap: 0.65rem;
+      margin: 0.6rem 0 0.85rem;
+    }
+
+    .decision-legend article {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      padding: 0.65rem 0.8rem;
+    }
+
+    .decision-legend h4 {
+      margin: 0 0 0.3rem;
+      font-size: 0.82rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .decision-legend .approve-label { color: #8fd4b0; }
+    .decision-legend .reject-label { color: #e0a0a0; }
+
+    .decision-legend p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
     .layout {
       display: grid;
       grid-template-columns: minmax(280px, 380px) 1fr;
@@ -360,8 +389,8 @@
     </header>
 
     <div class="lab-banner">
-      Lab mode: Approve / Reject records analyst decision only.
-      Containment is never executed from this UI.
+      Lab mode: <strong>Approve</strong> and <strong>Reject</strong> only record the
+      analyst decision (case status + note). Containment is never executed from this UI.
     </div>
 
     <div class="layout">
@@ -544,6 +573,52 @@
           }
         }
 
+        let relatedBlock = `
+          <div class="section">
+            <h3>Related cases</h3>
+            <p class="status-line">No related cases.</p>
+          </div>`;
+        try {
+          const rel = await api("/tools/find_related?case_id=" + caseId);
+          const relCases = rel.related_cases || [];
+          const ents = (rel.entities || []).filter((e) => e.entity_type !== "host");
+          const entLine = ents.length
+            ? `<p class="status-line">Entities: ${ents.map((e) => escapeHtml(e.entity_type + " " + e.value)).join(", ")}</p>`
+            : "";
+          if (relCases.length) {
+            relatedBlock = `
+              <div class="section">
+                <h3>Related cases</h3>
+                ${entLine}
+                ${relCases.map((rc) => {
+                  const via = (rc.matched_entities || [])
+                    .map((e) => e.entity_type + " " + e.value).join(", ");
+                  return `<button type="button" class="case-row" data-related-id="${rc.id}">
+                    <div class="title">#${rc.id} · ${escapeHtml(rc.title || "(untitled)")}</div>
+                    <div class="meta">
+                      ${badge(statusClass(rc.status), rc.status)}
+                      ${badge(sevClass(rc.severity), rc.severity)}
+                      ${via ? `<span>via ${escapeHtml(via)}</span>` : ""}
+                    </div>
+                  </button>`;
+                }).join("")}
+              </div>`;
+          } else {
+            relatedBlock = `
+              <div class="section">
+                <h3>Related cases</h3>
+                ${entLine || ""}
+                <p class="status-line">No related cases (same IP / hash / user / domain).</p>
+              </div>`;
+          }
+        } catch (e) {
+          relatedBlock = `
+            <div class="section">
+              <h3>Related cases</h3>
+              <p class="status-line">Could not load related cases: ${escapeHtml(e.message)}</p>
+            </div>`;
+        }
+
         const notes = (c.notes || []).slice().reverse();
         const notesHtml = notes.length
           ? `<ul class="notes">${notes.map((n) => `
@@ -575,17 +650,37 @@
             <h3>Recommended action</h3>
             <div class="prose">${escapeHtml(c.recommended_action || "(none)")}</div>
           </div>
+          ${relatedBlock}
           ${alertBlock}
           <div class="section">
             <h3>Analyst decision</h3>
-            <label for="decision-note" class="status-line">Note (optional)</label>
-            <textarea id="decision-note" placeholder="Why approve or reject…"></textarea>
+            <div class="decision-legend">
+              <article>
+                <h4 class="approve-label">Approve records</h4>
+                <p>
+                  You accept the triage (disposition + recommended action) as the
+                  investigation outcome. Status becomes <code>approved</code> and
+                  your note is stored. <strong>No firewall, isolation, or other
+                  containment is executed.</strong>
+                </p>
+              </article>
+              <article>
+                <h4 class="reject-label">Reject records</h4>
+                <p>
+                  You treat this as noise, a duplicate, or a wrong proposal.
+                  Status becomes <code>rejected</code> and your note is stored.
+                  <strong>Also does not execute containment.</strong>
+                </p>
+              </article>
+            </div>
+            <label for="decision-note" class="status-line">Note (optional) — why you approved or rejected</label>
+            <textarea id="decision-note" placeholder="e.g. Confirmed lab nmap from Kali; document only"></textarea>
             <div class="actions">
-              <button type="button" class="primary" id="btn-approve">Approve</button>
-              <button type="button" class="danger" id="btn-reject">Reject</button>
+              <button type="button" class="primary" id="btn-approve">Approve (record accept)</button>
+              <button type="button" class="danger" id="btn-reject">Reject (record noise)</button>
             </div>
             <p class="status-line" style="margin-top:0.5rem">
-              Same path as <code>approve_case.py</code> — status + notes only; no containment.
+              Same path as <code>approve_case.py</code> — writes status + an audit note only.
             </p>
           </div>
           <div class="section">
@@ -605,6 +700,13 @@
         $("btn-approve").onclick = () => decide(caseId, true);
         $("btn-reject").onclick = () => decide(caseId, false);
         $("btn-enrich").onclick = () => enrichIoc();
+        $("detail").querySelectorAll("[data-related-id]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            selectedId = Number(btn.dataset.relatedId);
+            loadCaseDetail(selectedId, true);
+            loadCases();
+          });
+        });
 
         if (scroll) $("detail-panel").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (e) {
@@ -622,7 +724,12 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ approved, note, author: "dashboard" }),
         });
-        toast(approved ? "Case approved (no containment)." : "Case rejected.", "ok");
+        toast(
+          approved
+            ? "Recorded Approve: accepted triage (no containment)."
+            : "Recorded Reject: noise / declined proposal (no containment).",
+          "ok",
+        );
         await loadCases();
         await loadCaseDetail(caseId, false);
       } catch (e) {
