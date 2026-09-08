@@ -2,7 +2,9 @@
 
 AI-first SOC lab: **Wazuh** for detection, **agents + tools** for triage and investigation.
 
-**Full setup (SSH, Wazuh Docker, native agent, Mac tools, Cursor MCP, demos, troubleshooting):** see **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**.
+**Sectioned write-up (GitLab-style, public-safe placeholders):** **[docs/site/](docs/site/)** — [overview](docs/site/index.md), install, operations, [roadmap](docs/site/roadmap.md). Local preview: `cd docs/site && python3 -m http.server 8000` then http://127.0.0.1:8000/ (static files only — not the FastAPI UI on 8080).
+
+**Operator bible (lab secrets, full troubleshooting, every command):** **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**.
 
 ## Architecture
 
@@ -153,6 +155,8 @@ Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. W
 # Dry-run on Pop (no need to re-set keys)
 ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
 ```
+
+Build-out including HITL next steps and a constrained cloud path: **[docs/site/roadmap.md](docs/site/roadmap.md)**.
 
 ## Next steps
 

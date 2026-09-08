@@ -1,0 +1,27 @@
+site: Agentic SOC Lab
+title: Agentic SOC
+pages:
+  - file: index.md
+    title: Overview
+  - file: prerequisites.md
+    title: Prerequisites
+  - file: installation-ssh.md
+    title: Installation — SSH
+  - file: installation-wazuh.md
+    title: Installation — Wazuh
+  - file: installation-agentic-soc.md
+    title: Installation — Agentic SOC
+  - file: operations.md
+    title: Operations
+  - file: workflow.md
+    title: Analyst workflow
+  - file: cursor-cloud.md
+    title: Cursor cloud
+  - file: triage-quality.md
+    title: Triage quality
+  - file: containment.md
+    title: Containment
+  - file: troubleshooting.md
+    title: Troubleshooting
+  - file: roadmap.md
+    title: Roadmap

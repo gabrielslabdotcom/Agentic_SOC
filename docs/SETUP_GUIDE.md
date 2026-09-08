@@ -4,6 +4,8 @@ Lab reference: a **Pop!_OS laptop** runs Wazuh, autonomy, Discord notifies, Curs
 
 **Lab-only credentials** appear below. Do not reuse them outside this private LAN lab.
 
+Public-safe sectioned pages (no live passwords) for a later write-up: **[docs/site/](site/)**.
+
 ---
 
 ## 0. What you end up with

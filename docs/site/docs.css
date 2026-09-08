@@ -1,0 +1,142 @@
+/* GitLab-inspired docs chrome (local preview only). */
+:root {
+  --bg: #1f1f1f;
+  --bg-sidebar: #181818;
+  --bg-main: #222222;
+  --border: #3a3a3a;
+  --text: #e8e8e8;
+  --muted: #8c8c8c;
+  --link: #6bb0ff;
+  --accent: #fc6d26;
+  --font: "GitLab Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100%;
+}
+
+@media (max-width: 800px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+}
+
+.sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 1.25rem 1rem 2rem;
+}
+
+.brand {
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.25rem;
+}
+
+.brand-sub {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0 0 1.25rem;
+}
+
+.sidebar a {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.sidebar a:hover { background: #2a2a2a; }
+.sidebar a.active {
+  background: #2e2e2e;
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+
+.nav-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0.85rem 0 0.35rem;
+  padding: 0 0.5rem;
+}
+
+main {
+  background: var(--bg-main);
+  padding: 1.5rem 2rem 3rem;
+  max-width: 860px;
+}
+
+main a { color: var(--link); }
+
+main h1 { margin-top: 0; font-size: 1.75rem; }
+main h2 { font-size: 1.2rem; margin-top: 1.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+main h3 { font-size: 1.05rem; }
+
+main pre, main code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+main pre {
+  background: #161616;
+  border: 1px solid var(--border);
+  padding: 0.85rem 1rem;
+  overflow: auto;
+}
+
+main code {
+  background: #161616;
+  padding: 0.1rem 0.3rem;
+}
+
+main pre code { background: none; padding: 0; }
+
+main table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+main th, main td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+main th { background: #2a2a2a; }
+
+.banner {
+  background: #2a241c;
+  border: 1px solid #5c4a32;
+  color: #e8d4b0;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.footer-nav {
+  margin-top: 2.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
