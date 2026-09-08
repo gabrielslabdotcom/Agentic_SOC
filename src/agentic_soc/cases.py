@@ -356,6 +356,55 @@ class CaseStore:
             LOG.warning("failed to record triage feedback for case %s", case_id, exc_info=True)
         return updated
 
+    def resolve_proposals(
+        self,
+        case_ids: list[int],
+        *,
+        approved: bool,
+        note: str = "",
+        author: str = "human",
+    ) -> dict[str, Any]:
+        """Bulk Approve / Reject. Record-only; never containment."""
+        updated: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for raw in case_ids:
+            try:
+                cid = int(raw)
+            except (TypeError, ValueError):
+                errors.append({"id": raw, "error": "invalid_id"})
+                continue
+            if cid in seen:
+                continue
+            seen.add(cid)
+            case = self.get_case(cid)
+            if case.get("error"):
+                errors.append({"id": cid, "error": "case not found"})
+                continue
+            st = str(case.get("status") or "").lower()
+            if st != "open":
+                skipped.append({"id": cid, "status": st, "reason": "not_open"})
+                continue
+            result = self.resolve_proposal(
+                cid,
+                approved=approved,
+                note=note,
+                author=author,
+            )
+            if result.get("error"):
+                errors.append({"id": cid, "error": result.get("error")})
+            else:
+                updated.append({"id": cid, "status": result.get("status")})
+        return {
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors,
+            "count": len(updated),
+            "approved": approved,
+            "containment_executed": False,
+        }
+
     def auto_close_noise(
         self,
         case_id: int,

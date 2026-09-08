@@ -225,19 +225,63 @@
     button.ghost { background: transparent; }
 
     .case-list {
-      max-height: calc(100vh - 220px);
+      max-height: calc(100vh - 280px);
       overflow-y: auto;
     }
 
+    .bulk-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .bulk-bar .select-all {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .bulk-bar input[type="text"] {
+      flex: 1;
+      min-width: 140px;
+    }
+
     .case-row {
-      display: block;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
       width: 100%;
       text-align: left;
       border: none;
       border-bottom: 1px solid var(--border);
       border-radius: 0;
-      padding: 0.75rem 1rem;
+      padding: 0.55rem 0.65rem 0.55rem 0.75rem;
       background: transparent;
+    }
+
+    .case-row input.case-check {
+      margin: 0.55rem 0 0;
+      flex-shrink: 0;
+    }
+
+    .case-pick {
+      flex: 1;
+      min-width: 0;
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-radius: 0;
+      padding: 0.2rem 0.35rem;
+      background: transparent;
+      color: inherit;
     }
 
     .case-row:hover { background: rgba(255, 255, 255, 0.03); }
@@ -449,6 +493,16 @@
             <button type="button" class="ghost" id="btn-refresh">Refresh</button>
           </div>
         </div>
+        <div class="bulk-bar" id="bulk-bar">
+          <label class="select-all">
+            <input type="checkbox" id="select-all" />
+            Select all
+          </label>
+          <span class="status-line" id="bulk-count">0 selected</span>
+          <input type="text" id="bulk-note" placeholder="Bulk note (optional)" aria-label="Bulk decision note" />
+          <button type="button" class="primary" id="btn-bulk-approve" disabled>Approve selected</button>
+          <button type="button" class="danger" id="btn-bulk-reject" disabled>Reject selected</button>
+        </div>
         <div id="case-list" class="case-list">
           <div class="detail empty">Loading cases…</div>
         </div>
@@ -471,6 +525,8 @@
   <script>
     const REFRESH_MS = 15000;
     let selectedId = null;
+    let selectedIds = new Set();
+    let listedCases = [];
     let refreshTimer = null;
     let uiConfig = {};
 
@@ -556,9 +612,13 @@
       try {
         const data = await api("/tools/list_cases" + q);
         const cases = data.cases || [];
+        listedCases = cases;
+        const visible = new Set(cases.map((c) => c.id));
+        selectedIds = new Set([...selectedIds].filter((id) => visible.has(id)));
         $("list-status").textContent =
           cases.length + " case(s) · refreshed " + new Date().toLocaleTimeString();
         renderCaseList(cases);
+        syncBulkUi();
         if (selectedId != null) {
           const still = cases.some((c) => c.id === selectedId);
           if (still) await loadCaseDetail(selectedId, false);
@@ -573,31 +633,115 @@
     function renderCaseList(cases) {
       if (!cases.length) {
         $("case-list").innerHTML = `<div class="detail empty">No cases for this filter.</div>`;
+        syncBulkUi();
         return;
       }
       $("case-list").innerHTML = cases.map((c) => {
         const active = c.id === selectedId ? " active" : "";
+        const checked = selectedIds.has(c.id) ? " checked" : "";
         return `
-          <button type="button" class="case-row${active}" data-id="${c.id}">
-            <div class="title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</div>
-            <div class="meta">
-              ${badge(statusClass(c.status), c.status)}
-              ${badge(sevClass(c.severity), c.severity)}
-              ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
-              <span>${escapeHtml(c.agent_name || "—")}</span>
-            </div>
-          </button>`;
+          <div class="case-row${active}" data-id="${c.id}">
+            <input type="checkbox" class="case-check" data-id="${c.id}" aria-label="Select case ${c.id}"${checked} />
+            <button type="button" class="case-pick" data-id="${c.id}">
+              <div class="title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</div>
+              <div class="meta">
+                ${badge(statusClass(c.status), c.status)}
+                ${badge(sevClass(c.severity), c.severity)}
+                ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
+                <span>${escapeHtml(c.agent_name || "—")}</span>
+              </div>
+            </button>
+          </div>`;
       }).join("");
 
-      $("case-list").querySelectorAll(".case-row").forEach((btn) => {
+      $("case-list").querySelectorAll(".case-pick").forEach((btn) => {
         btn.addEventListener("click", () => {
           selectedId = Number(btn.dataset.id);
           loadCaseDetail(selectedId, true);
-          $("case-list").querySelectorAll(".case-row").forEach((b) => {
-            b.classList.toggle("active", Number(b.dataset.id) === selectedId);
+          $("case-list").querySelectorAll(".case-row").forEach((row) => {
+            row.classList.toggle("active", Number(row.dataset.id) === selectedId);
           });
         });
       });
+      $("case-list").querySelectorAll(".case-check").forEach((box) => {
+        box.addEventListener("click", (ev) => ev.stopPropagation());
+        box.addEventListener("change", () => {
+          const id = Number(box.dataset.id);
+          if (box.checked) selectedIds.add(id);
+          else selectedIds.delete(id);
+          syncBulkUi();
+        });
+      });
+      syncBulkUi();
+    }
+
+    function syncBulkUi() {
+      const n = selectedIds.size;
+      const count = $("bulk-count");
+      if (count) count.textContent = n + " selected";
+      const approve = $("btn-bulk-approve");
+      const reject = $("btn-bulk-reject");
+      if (approve) approve.disabled = n === 0;
+      if (reject) reject.disabled = n === 0;
+      const selectAll = $("select-all");
+      if (selectAll) {
+        const ids = listedCases.map((c) => c.id);
+        const allOn = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+        const someOn = ids.some((id) => selectedIds.has(id));
+        selectAll.checked = allOn;
+        selectAll.indeterminate = someOn && !allOn;
+        selectAll.disabled = ids.length === 0;
+      }
+    }
+
+    function toggleSelectAll(on) {
+      if (on) listedCases.forEach((c) => selectedIds.add(c.id));
+      else selectedIds.clear();
+      $("case-list").querySelectorAll(".case-check").forEach((box) => {
+        box.checked = on;
+      });
+      syncBulkUi();
+    }
+
+    async function bulkDecide(approved) {
+      const ids = [...selectedIds];
+      if (!ids.length) {
+        toast("Select at least one case", "error");
+        return;
+      }
+      const note = ($("bulk-note") && $("bulk-note").value.trim()) || "";
+      const approveBtn = $("btn-bulk-approve");
+      const rejectBtn = $("btn-bulk-reject");
+      if (approveBtn) approveBtn.disabled = true;
+      if (rejectBtn) rejectBtn.disabled = true;
+      try {
+        const result = await api("/tools/approve_cases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_ids: ids,
+            approved,
+            note,
+            author: "dashboard",
+          }),
+        });
+        const n = result.count || 0;
+        const skipped = (result.skipped || []).length;
+        const errors = (result.errors || []).length;
+        const verb = approved ? "Approved" : "Rejected";
+        toast(
+          verb + " " + n + " case(s) (record only, no containment)"
+            + (skipped ? "; skipped " + skipped + " not-open" : "")
+            + (errors ? "; " + errors + " error(s)" : "") + ".",
+          errors ? "error" : "ok",
+        );
+        selectedIds.clear();
+        await loadCases();
+        if (selectedId != null) await loadCaseDetail(selectedId, false);
+      } catch (e) {
+        toast(e.message, "error");
+        syncBulkUi();
+      }
     }
 
     async function loadCaseDetail(caseId, scroll) {
@@ -849,9 +993,15 @@
       }
     }
 
-    $("status-filter").addEventListener("change", loadCases);
+    $("status-filter").addEventListener("change", () => {
+      selectedIds.clear();
+      loadCases();
+    });
     $("btn-refresh").addEventListener("click", loadCases);
     $("auto-refresh").addEventListener("change", scheduleRefresh);
+    $("select-all").addEventListener("change", (ev) => toggleSelectAll(ev.target.checked));
+    $("btn-bulk-approve").addEventListener("click", () => bulkDecide(true));
+    $("btn-bulk-reject").addEventListener("click", () => bulkDecide(false));
 
     loadConfig().then(() => {
       loadCases();

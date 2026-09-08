@@ -106,6 +106,8 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     assert "Cursor investigation" in dash.text
     assert "rule_id" in dash.text
     assert "auto-close" in dash.text
+    assert "Select all" in dash.text
+    assert "Approve selected" in dash.text
 
 
 def test_approve_records_feedback(client: TestClient) -> None:
@@ -133,6 +135,33 @@ def test_approve_records_feedback(client: TestClient) -> None:
         item["case_id"] == case_id and item["approved"] is False
         for item in body["items"]
     )
+
+
+def test_bulk_approve_open_cases_only(client: TestClient) -> None:
+    a = client.post("/tools/open_case", json={"title": "scan a"}).json()["id"]
+    b = client.post("/tools/open_case", json={"title": "scan b"}).json()["id"]
+    done = client.post("/tools/open_case", json={"title": "already decided"}).json()["id"]
+    client.post(f"/tools/approve_case/{done}", json={"approved": True, "note": "solo"})
+
+    bulk = client.post(
+        "/tools/approve_cases",
+        json={
+            "case_ids": [a, b, done],
+            "approved": False,
+            "note": "lab nmap burst",
+            "author": "pytest",
+        },
+    )
+    assert bulk.status_code == 200
+    body = bulk.json()
+    assert body["containment_executed"] is False
+    assert body["count"] == 2
+    assert {row["id"] for row in body["updated"]} == {a, b}
+    assert all(row["status"] == "rejected" for row in body["updated"])
+    skipped_ids = {row["id"] for row in body["skipped"]}
+    assert done in skipped_ids
+    assert client.get(f"/tools/get_case/{a}").json()["status"] == "rejected"
+    assert client.get(f"/tools/get_case/{done}").json()["status"] == "approved"
 
 
 def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

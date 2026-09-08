@@ -58,6 +58,13 @@ class ApproveCaseBody(BaseModel):
     author: str = "human"
 
 
+class BulkApproveBody(BaseModel):
+    case_ids: list[int] = Field(..., min_length=1, max_length=100)
+    approved: bool
+    note: str = ""
+    author: str = "human"
+
+
 class UpsertEntityBody(BaseModel):
     entity_type: str
     value: str
@@ -195,6 +202,21 @@ def approve_case(case_id: int, body: ApproveCaseBody) -> dict[str, Any]:
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
     return result
+
+
+@app.post("/tools/approve_cases")
+def approve_cases(body: BulkApproveBody) -> dict[str, Any]:
+    """
+    Bulk Approve or Reject (same record-only path as a single approve).
+
+    Skips cases that are not open. Never executes containment.
+    """
+    return get_tools().resolve_proposals(
+        body.case_ids,
+        approved=body.approved,
+        note=body.note,
+        author=body.author,
+    )
 
 
 @app.get("/tools/feedback_summary")

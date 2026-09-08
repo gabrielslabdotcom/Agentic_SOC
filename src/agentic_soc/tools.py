@@ -142,6 +142,22 @@ class SocTools:
             author=author,
         )
 
+    def resolve_proposals(
+        self,
+        case_ids: list[int],
+        *,
+        approved: bool,
+        note: str = "",
+        author: str = "human",
+    ) -> dict[str, Any]:
+        """Bulk Approve / Reject (no auto-containment)."""
+        return self.cases.resolve_proposals(
+            case_ids,
+            approved=approved,
+            note=note,
+            author=author,
+        )
+
     def auto_close_noise(
         self,
         case_id: int,
