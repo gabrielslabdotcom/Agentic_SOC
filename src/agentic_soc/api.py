@@ -82,6 +82,13 @@ class LinkCaseEntityBody(BaseModel):
     alert_id: Optional[str] = None
 
 
+class ExecuteContainmentBody(BaseModel):
+    case_id: int
+    confirm: bool = False
+    source_ip: Optional[str] = None
+    author: str = "dashboard"
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -101,7 +108,8 @@ def ui_config() -> dict[str, Any]:
             "Containment is never executed. Live min-level stays 8; sshd/PAM auth failures "
             "at level 5 are OR'd in (AUTONOMY_INCLUDE_AUTH). A reject on the same "
             "rule_id+source IP skips repeats. Informational/FP cases may auto-close "
-            "without Discord (AUTONOMY_AUTO_CLOSE_NOISE). Still no containment."
+            "without Discord (AUTONOMY_AUTO_CLOSE_NOISE). Approve stays record-only. "
+            "UFW deny is a dry-run plan unless CONTAINMENT_ENABLED=true (still HITL, never auto)."
         )
         banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
     else:
@@ -117,7 +125,8 @@ def ui_config() -> dict[str, Any]:
         "wazuh_dashboard_url": settings.wazuh_dashboard_url,
         "cases_db_path": str(settings.cases_path),
         "lab_mode": True,
-        "containment_enabled": False,
+        "containment_enabled": os.environ.get("CONTAINMENT_ENABLED", "false").lower()
+        in ("1", "true", "yes"),
         "autonomy_min_level": min_level,
         "include_auth": os.environ.get("AUTONOMY_INCLUDE_AUTH", "true"),
         "auto_close_noise": os.environ.get("AUTONOMY_AUTO_CLOSE_NOISE", "true"),
@@ -234,6 +243,36 @@ def propose_action(case_id: int, body: ProposeActionBody) -> dict[str, Any]:
         auto_execute=body.auto_execute,
     )
     if result.get("error"):
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.get("/tools/containment_plan")
+def containment_plan(
+    case_id: Optional[int] = Query(None),
+    source_ip: Optional[str] = Query(None),
+    record: bool = Query(False),
+) -> dict[str, Any]:
+    """Dry-run UFW deny plan. Never executes."""
+    if case_id is None and not (source_ip or "").strip():
+        raise HTTPException(status_code=400, detail={"error": "case_id or source_ip required"})
+    return get_tools().plan_containment(
+        source_ip=source_ip,
+        case_id=case_id,
+        record=record,
+    )
+
+
+@app.post("/tools/execute_containment")
+def execute_containment(body: ExecuteContainmentBody) -> dict[str, Any]:
+    """HITL UFW deny. No-op unless CONTAINMENT_ENABLED=true and confirm=true."""
+    result = get_tools().execute_containment(
+        body.case_id,
+        confirm=body.confirm,
+        source_ip=body.source_ip,
+        author=body.author,
+    )
+    if result.get("error") and result.get("id"):
         raise HTTPException(status_code=404, detail=result)
     return result
 

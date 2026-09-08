@@ -394,6 +394,11 @@
       font-size: 0.85rem;
     }
 
+    .containment-panel .prose {
+      max-height: 180px;
+      border-color: rgba(201, 162, 39, 0.45);
+    }
+
     .notes { margin: 0; padding: 0; }
     .notes .who, .investigation-panel .who {
       font-family: var(--mono);
@@ -468,7 +473,9 @@
       Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
       are OR'd in without lowering that floor. A reject on the same rule_id +
       source IP skips repeats. Informational / false-positive cases may
-      auto-close without Discord. Containment stays off.
+      auto-close without Discord. UFW deny is a dry-run plan unless
+      CONTAINMENT_ENABLED is on (still a separate HITL click — Approve does not
+      block). Containment stays off by default.
     </div>
     <div class="instance-banner mac-local" id="instance-banner">
       Identifying cases database…
@@ -817,7 +824,11 @@
           const t = n.note || "";
           return a === "cursor_cloud_agent" || t.indexOf("[cursor_investigation]") === 0;
         });
-        const otherNotes = notes.filter((n) => invNotes.indexOf(n) < 0);
+        const containmentNotes = notes.filter((n) => {
+          const t = n.note || "";
+          return t.indexOf("[containment_plan]") === 0 || t.indexOf("[containment_execute]") === 0;
+        });
+        const otherNotes = notes.filter((n) => invNotes.indexOf(n) < 0 && containmentNotes.indexOf(n) < 0);
         let investigationBlock;
         if (invNotes.length) {
           investigationBlock = `
@@ -838,6 +849,28 @@
               <p class="investigation-empty">No investigation note yet. The cloud agent may still be running, or the hook was skipped. Refresh this case in a minute.</p>
             </div>`;
         }
+        const canExecute = !!(uiConfig && uiConfig.containment_enabled);
+        const srcIp = c.source_ip || "";
+        const containmentBlock = `
+          <div class="section containment-panel">
+            <h3>Containment plan (dry-run)</h3>
+            <p class="status-line">
+              Approve / Reject never run UFW. A deny-from-source plan can be recorded here.
+              Execute stays off unless <code>CONTAINMENT_ENABLED=true</code> on this host
+              (still a separate click, never automatic). Protected: Pop host 192.168.50.254.
+            </p>
+            ${srcIp ? `<p class="status-line">Case source IP: <code>${escapeHtml(srcIp)}</code></p>` : `<p class="status-line">No source IP on this case — cannot plan a deny.</p>`}
+            ${containmentNotes.length ? containmentNotes.map((n) => `
+              <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
+              <div class="prose">${escapeHtml(n.note || "")}</div>
+            `).join("") : `<p class="investigation-empty">No plan recorded yet.</p>`}
+            <div class="actions">
+              <button type="button" class="ghost" id="btn-plan-containment" ${srcIp ? "" : "disabled"}>Record UFW plan</button>
+              <button type="button" class="danger" id="btn-exec-containment" ${srcIp && canExecute ? "" : "disabled"}>
+                ${canExecute ? "Execute UFW deny" : "Execute disabled (dry-run)"}
+              </button>
+            </div>
+          </div>`;
         const notesHtml = otherNotes.length
           ? `<ul class="notes">${otherNotes.map((n) => `
               <li>
@@ -911,6 +944,7 @@
           ${relatedBlock}
           ${alertBlock}
           ${investigationBlock}
+          ${containmentBlock}
           ${decisionBlock}
           <div class="section">
             <h3>Enrich IOC</h3>
@@ -930,6 +964,10 @@
         const rejectBtn = $("btn-reject");
         if (approveBtn) approveBtn.onclick = () => decide(caseId, true);
         if (rejectBtn) rejectBtn.onclick = () => decide(caseId, false);
+        const planBtn = $("btn-plan-containment");
+        const execBtn = $("btn-exec-containment");
+        if (planBtn) planBtn.onclick = () => recordContainmentPlan(caseId);
+        if (execBtn) execBtn.onclick = () => executeContainment(caseId, c.source_ip);
         $("btn-enrich").onclick = () => enrichIoc();
         $("detail").querySelectorAll("[data-related-id]").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -943,6 +981,55 @@
       } catch (e) {
         $("detail").className = "detail empty";
         $("detail").textContent = "Failed to load case: " + e.message;
+        toast(e.message, "error");
+      }
+    }
+
+    async function recordContainmentPlan(caseId) {
+      try {
+        const plan = await api(
+          "/tools/containment_plan?case_id=" + encodeURIComponent(caseId) + "&record=true",
+        );
+        toast(
+          plan.allowed
+            ? "Recorded UFW deny plan (dry-run, not executed)."
+            : ("Plan not allowed: " + (plan.reason || "unknown")),
+          plan.allowed ? "ok" : "error",
+        );
+        await loadCaseDetail(caseId, false);
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    async function executeContainment(caseId, sourceIp) {
+      if (!(uiConfig && uiConfig.containment_enabled)) {
+        toast("CONTAINMENT_ENABLED is off. Record a dry-run plan instead.", "error");
+        return;
+      }
+      const ok = window.confirm(
+        "Run sudo ufw deny from " + (sourceIp || "this source") +
+          " on this host? Approve/Reject will not do this. Only continue if you intend a lab firewall change.",
+      );
+      if (!ok) return;
+      try {
+        const result = await api("/tools/execute_containment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: caseId,
+            confirm: true,
+            source_ip: sourceIp || null,
+            author: "dashboard",
+          }),
+        });
+        if (result.executed) {
+          toast("UFW deny inserted for " + (result.source_ip || sourceIp) + ".", "ok");
+        } else {
+          toast("Not executed: " + (result.reason || result.error || "unknown"), "error");
+        }
+        await loadCaseDetail(caseId, false);
+      } catch (e) {
         toast(e.message, "error");
       }
     }

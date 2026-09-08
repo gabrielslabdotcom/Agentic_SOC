@@ -108,6 +108,7 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     assert "auto-close" in dash.text
     assert "Select all" in dash.text
     assert "Approve selected" in dash.text
+    assert "Containment plan" in dash.text
 
 
 def test_approve_records_feedback(client: TestClient) -> None:
@@ -162,6 +163,36 @@ def test_bulk_approve_open_cases_only(client: TestClient) -> None:
     assert done in skipped_ids
     assert client.get(f"/tools/get_case/{a}").json()["status"] == "rejected"
     assert client.get(f"/tools/get_case/{done}").json()["status"] == "approved"
+
+
+def test_containment_plan_and_disabled_execute(client: TestClient) -> None:
+    opened = client.post(
+        "/tools/open_case",
+        json={
+            "title": "scan",
+            "source_ip": "203.0.113.80",
+            "recommended_action": "investigate_and_document",
+        },
+    )
+    case_id = opened.json()["id"]
+    plan = client.get(f"/tools/containment_plan?case_id={case_id}&record=true")
+    assert plan.status_code == 200
+    body = plan.json()
+    assert body["allowed"] is True
+    assert body["dry_run"] is True
+    assert "ufw" in (body.get("command") or "")
+
+    blocked = client.get("/tools/containment_plan?source_ip=192.168.50.254")
+    assert blocked.status_code == 200
+    assert blocked.json()["allowed"] is False
+
+    exe = client.post(
+        "/tools/execute_containment",
+        json={"case_id": case_id, "confirm": True, "author": "pytest"},
+    )
+    assert exe.status_code == 200
+    assert exe.json()["executed"] is False
+    assert exe.json()["reason"] == "containment_disabled"
 
 
 def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -320,6 +320,22 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             )
             continue
 
+        if src_ip:
+            try:
+                plan = tools.plan_containment(
+                    source_ip=src_ip,
+                    case_id=case["id"],
+                    record=True,
+                )
+                LOG.info(
+                    "containment plan case #%s allowed=%s ip=%s",
+                    case["id"],
+                    plan.get("allowed"),
+                    src_ip,
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("containment plan failed case #%s: %s", case["id"], exc)
+
         opened += 1
         if alert_id:
             known_cases.add(alert_id)

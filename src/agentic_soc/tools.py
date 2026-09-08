@@ -6,6 +6,11 @@ from typing import Any, Optional
 
 from agentic_soc.cases import CaseStore
 from agentic_soc.config import Settings, get_settings
+from agentic_soc.containment import (
+    execute_block_source_ip,
+    plan_block_source_ip,
+    plan_note,
+)
 from agentic_soc.enrichment import VirusTotalClient
 from agentic_soc.triage import extract_iocs, extract_source_ip
 from agentic_soc.wazuh_client import WazuhClient
@@ -183,6 +188,48 @@ class SocTools:
 
     def feedback_summary(self, limit: int = 50) -> dict[str, Any]:
         return self.cases.feedback_summary(limit=limit)
+
+    def plan_containment(
+        self,
+        *,
+        source_ip: Optional[str] = None,
+        case_id: Optional[int] = None,
+        record: bool = False,
+    ) -> dict[str, Any]:
+        """Dry-run UFW deny plan. Optional record on the case. Never executes."""
+        ip = source_ip
+        if case_id is not None and not ip:
+            case = self.cases.get_case(case_id)
+            if case.get("error"):
+                return case
+            ip = case.get("source_ip")
+        plan = plan_block_source_ip(ip, case_id=case_id)
+        if record and case_id is not None:
+            self.cases.update_case(
+                case_id,
+                note=plan_note(plan),
+                author="containment_plan",
+            )
+            plan["recorded"] = True
+        return plan
+
+    def execute_containment(
+        self,
+        case_id: int,
+        *,
+        confirm: bool = False,
+        source_ip: Optional[str] = None,
+        author: str = "human",
+    ) -> dict[str, Any]:
+        """HITL execute of a planned UFW deny. Off unless CONTAINMENT_ENABLED."""
+        case = self.cases.get_case(case_id)
+        if case.get("error"):
+            return case
+        ip = (source_ip or case.get("source_ip") or "").strip() or None
+        result = execute_block_source_ip(ip, case_id=case_id, confirm=confirm)
+        audit = plan_note(result).replace("[containment_plan]", "[containment_execute]", 1)
+        self.cases.update_case(case_id, note=audit, author=author)
+        return result
 
     async def enrich_ioc(
         self,

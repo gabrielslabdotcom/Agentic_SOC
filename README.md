@@ -68,7 +68,7 @@ uvicorn agentic_soc.api:app --reload --port 8080
 # OpenAPI: http://127.0.0.1:8080/docs
 ```
 
-**Approve / Reject** record status + a note only (same as `approve_case.py`). No containment. The dashboard glossary and Discord embed field say the same thing. Case detail also shows **Related cases** via SQLite `find_related` (same source IP / hash / user / domain).
+**Approve / Reject** record status + a note only (same as `approve_case.py`). Approve does **not** run UFW. A separate **Containment plan** on the case is a dry-run unless `CONTAINMENT_ENABLED=true` and you click Execute.
 
 ## Cursor MCP
 
@@ -161,5 +161,6 @@ Phase A (HITL ops) is in this repo: instance banners, tunnel on **8081**, `lab_s
 1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject via the **8081** tunneled dashboard (record-only). **No auto-containment.**
 2. **Phase B:** Cursor final reply is stored on the case; dashboard shows **Cursor investigation**; Discord follow-up when it lands.
 3. **Phase C:** live auth L5 via OR query (min-level stays 8); Approve / Reject skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`.
-4. **Phase D (this repo):** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor, no containment. Suspicious stays HITL.
-5. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra / auto-containment.
+4. **Phase D:** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor. Suspicious stays HITL.
+5. **Phase E (this repo):** HITL containment *plan* — record `sudo -n ufw deny from <src>` on the case. Execute requires `CONTAINMENT_ENABLED=true` plus a separate dashboard click. Approve / autonomy never run UFW. Auto-containment stays deferred.
+6. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra.

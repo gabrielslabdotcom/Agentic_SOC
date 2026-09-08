@@ -447,7 +447,7 @@ python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 4. **Triage eval** — `python scripts/eval_triage.py` against `evals/labeled_alerts.json` (§11.3).
 5. **SQLite entity correlation** is implemented (`entities` / `entity_links` / `find_related` — see §14). Graduate to Neo4j only if multi-hop graph queries, entity volume, or relationship types outgrow SQLite. Those criteria remain deferred.
 6. **AbuseIPDB** — set `ABUSEIPDB_API_KEY` in `.env` when you add that client.
-7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. Reject on the same `rule_id`+source IP skips repeats (`python scripts/eval_feedback.py`). Informational/FP that still open may auto-close without Discord (`AUTONOMY_AUTO_CLOSE_NOISE`). Cursor investigation notes land on HITL cases (Phase B). **No containment.**
+7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. Reject on the same `rule_id`+source IP skips repeats. Informational/FP may auto-close without Discord. New HITL cases get a **UFW deny dry-run plan** on the case; Execute requires `CONTAINMENT_ENABLED=true` (not set by default). **No auto-containment.**
 8. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
 
 ### 8.1 Seeing nmap / port-scan alerts
