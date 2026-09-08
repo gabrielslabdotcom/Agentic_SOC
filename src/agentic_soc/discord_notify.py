@@ -179,6 +179,49 @@ class DiscordNotifier:
             embeds=[embed],
         )
 
+    async def notify_investigation_ready(
+        self,
+        case: dict[str, Any],
+        *,
+        note: str,
+        outcome: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Follow-up when the Cursor cloud note has been written to the case."""
+        outcome = outcome or {}
+        case_id = case.get("id")
+        title = case.get("title") or f"Case #{case_id}"
+        preview = (note or "").strip()
+        if preview.startswith("[cursor_investigation]"):
+            parts = preview.split("\n\n", 1)
+            preview = parts[1] if len(parts) > 1 else preview
+        preview = " ".join(preview.split())
+        embed = {
+            "title": f"Investigation note ready #{case_id}",
+            "description": _clip(title, 400),
+            "color": 0x5B8DEF,
+            "fields": [
+                _field("Disposition", case.get("disposition"), inline=True),
+                _field("Severity", case.get("severity"), inline=True),
+                _field("run_id", f"`{outcome.get('run_id') or '—'}`", inline=True),
+                _field("Note preview", preview or "(empty)", inline=False, limit=900),
+                _field(
+                    "Next",
+                    "Open the tunneled dashboard (port 8081), read the Cursor "
+                    "investigation section, then Approve / Reject (record-only — "
+                    "no containment).",
+                    inline=False,
+                    limit=500,
+                ),
+            ],
+            "footer": {
+                "text": "Lab autonomy — note stored on the case. Containment NOT executed.",
+            },
+        }
+        return await self.send_raw(
+            content=f"**Cursor investigation landed on case #{case_id}** — still needs human Approve / Reject.",
+            embeds=[embed],
+        )
+
     async def notify_cycle_summary(
         self,
         *,

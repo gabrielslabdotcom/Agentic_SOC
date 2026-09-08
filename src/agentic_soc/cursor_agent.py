@@ -7,6 +7,7 @@ Hydra. Failures are logged and never raise into the autonomy cycle.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -18,6 +19,9 @@ LOG = logging.getLogger("agentic_soc.cursor_agent")
 
 DEFAULT_MODEL = "composer-2.5"
 DEFAULT_STARTING_REF = "main"
+INVESTIGATION_AUTHOR = "cursor_cloud_agent"
+NOTE_PREFIX = "[cursor_investigation]"
+MAX_NOTE_CHARS = 50000
 
 
 def _truthy(value: Optional[str], default: bool = False) -> bool:
@@ -88,27 +92,21 @@ def build_investigation_prompt(
         vt_text = "none"
 
     api_url = (api_url or "").rstrip("/")
+    extra_http = ""
     if api_url:
-        writeback = f"""
-## Write findings back (preferred)
-If reachable from this VM, append your investigation note via HTTP:
-
-```bash
-curl -sS -X PATCH "{api_url}/tools/update_case/{case_id}" \\
-  -H "Content-Type: application/json" \\
-  -d '{{"note":"<your findings markdown>","author":"cursor_cloud_agent"}}'
-```
-
-Do **not** call approve/reject. Do **not** execute containment.
-If the API is unreachable (common for public Cursor cloud → private LAN),
-put the full note in your final reply so a human can paste it into the case.
+        extra_http = f"""
+Optional extra (only if this VM can reach it): PATCH
+`{api_url}/tools/update_case/{case_id}` with author `cursor_cloud_agent`.
+Do **not** call approve/reject. Skip this if the URL is on a private LAN.
 """
-    else:
-        writeback = """
+
+    writeback = f"""
 ## Write findings back
-`AGENTIC_SOC_API_URL` is not set. Put a complete investigation note in your
-final reply so a human can paste it into the case (dashboard or
-`PATCH /tools/update_case/{id}`). Do **not** approve/reject or contain.
+The lab host that launched this agent copies your **final reply** onto the
+case automatically. Write the complete investigation note as that final
+message. Do **not** try to reach `192.168.50.254` or hang on LAN APIs.
+Do **not** approve/reject or execute containment.
+{extra_http}
 """
 
     return f"""You are an Agentic SOC investigation assistant for a lab environment.
@@ -144,6 +142,85 @@ Produce a concise investigation note covering:
 4. Explicit reminder that containment must stay manual
 {writeback}
 """
+
+
+def extract_result_text(result: Any) -> str:
+    """Pull assistant text from an SDK RunResult (or similar namespace)."""
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result.strip()
+    for attr in ("result", "text", "output"):
+        val = getattr(result, attr, None)
+        if callable(val):
+            continue
+        if val:
+            return str(val).strip()
+    return str(result).strip() if result else ""
+
+
+def format_investigation_note(text: str, outcome: dict[str, Any]) -> str:
+    body = (text or "").strip() or "(cloud agent finished with an empty reply)"
+    if len(body) > MAX_NOTE_CHARS:
+        body = body[: MAX_NOTE_CHARS - 1] + "…"
+    return (
+        f"{NOTE_PREFIX}\n"
+        f"status={outcome.get('status') or 'unknown'}\n"
+        f"run_id={outcome.get('run_id') or '—'}\n"
+        f"agent_id={outcome.get('agent_id') or '—'}\n"
+        f"containment=not_executed\n\n"
+        f"{body}"
+    )
+
+
+def persist_investigation_note(
+    case_id: Any,
+    text: str,
+    *,
+    outcome: dict[str, Any],
+    settings: Optional[Settings] = None,
+) -> dict[str, Any]:
+    """Append the cloud agent's final reply onto the local case (Pop SQLite)."""
+    if case_id is None or case_id == "":
+        return {"ok": False, "error": "no case_id"}
+    try:
+        cid = int(case_id)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid case_id={case_id!r}"}
+
+    from agentic_soc.tools import SocTools
+
+    note = format_investigation_note(text, outcome)
+    tools = SocTools(settings=settings)
+    updated = tools.update_case(cid, note=note, author=INVESTIGATION_AUTHOR)
+    if updated.get("error"):
+        return {"ok": False, "error": updated.get("error"), "case_id": cid}
+    LOG.info(
+        "persisted cursor investigation note case=%s chars=%s run_id=%s",
+        cid,
+        len(note),
+        outcome.get("run_id"),
+    )
+    return {"ok": True, "case_id": cid, "note_chars": len(note)}
+
+
+def _notify_investigation_ready(
+    case: dict[str, Any],
+    note: str,
+    outcome: dict[str, Any],
+    settings: Settings,
+) -> None:
+    try:
+        from agentic_soc.discord_notify import DiscordNotifier
+
+        notifier = DiscordNotifier(settings)
+        if not notifier.configured:
+            return
+        asyncio.run(
+            notifier.notify_investigation_ready(case, note=note, outcome=outcome)
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("discord investigation notify failed: %s", exc)
 
 
 def _resolve_config(settings: Optional[Settings] = None) -> dict[str, Any]:
@@ -276,13 +353,16 @@ def _run_cloud_prompt(prompt: str, cfg: dict[str, Any]) -> dict[str, Any]:
             "run_id": run_id,
             "agent_id": agent_id,
             "status": status,
+            "result_text": extract_result_text(result),
         }
+    text = extract_result_text(result)
     return {
         "ok": True,
         "status": status,
         "run_id": run_id,
         "agent_id": agent_id,
-        "result_preview": str(getattr(result, "result", "") or "")[:500],
+        "result_text": text,
+        "result_preview": text[:500],
     }
 
 
@@ -336,6 +416,32 @@ def kick_cursor_investigation(
                 outcome.get("agent_id"),
                 outcome.get("status"),
             )
+            try:
+                persisted = persist_investigation_note(
+                    case_id,
+                    outcome.get("result_text") or "",
+                    outcome=outcome,
+                    settings=settings,
+                )
+                outcome_box["persisted"] = persisted.get("ok")
+                if not persisted.get("ok"):
+                    LOG.warning(
+                        "cursor note persist failed case=%s: %s",
+                        case_id,
+                        persisted.get("error"),
+                    )
+                else:
+                    _notify_investigation_ready(
+                        case,
+                        format_investigation_note(
+                            outcome.get("result_text") or "", outcome
+                        ),
+                        outcome,
+                        settings,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("cursor note persist error case=%s: %s", case_id, exc)
+                outcome_box["persisted"] = False
         else:
             LOG.warning(
                 "cursor cloud investigation failed case=%s: %s",

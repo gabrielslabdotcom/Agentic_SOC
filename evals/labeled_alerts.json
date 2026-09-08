@@ -495,6 +495,158 @@
         "disposition": ["suspicious"],
         "open_case": true
       }
+    },
+    {
+      "id": "eval-sshd-success",
+      "category": "benign_noise",
+      "alert": {
+        "id": "eval-sshd-success",
+        "timestamp": "2026-09-06T18:07:00.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "5715",
+        "rule_level": 3,
+        "description": "sshd: authentication success.",
+        "full_log": "sshd[9001]: Accepted publickey for admin from 192.168.50.10 port 51200 ssh2",
+        "raw": {
+          "rule": {
+            "id": "5715",
+            "level": 3,
+            "description": "sshd: authentication success.",
+            "groups": ["syslog", "sshd", "authentication_success"]
+          }
+        }
+      },
+      "expected": {
+        "disposition": ["false_positive", "informational"],
+        "open_case": false
+      }
+    },
+    {
+      "id": "eval-sudo-success",
+      "category": "benign_noise",
+      "alert": {
+        "id": "eval-sudo-success",
+        "timestamp": "2026-09-06T18:07:10.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "5402",
+        "rule_level": 3,
+        "description": "Successful sudo to ROOT executed.",
+        "full_log": "sudo: admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/apt update",
+        "raw": {
+          "rule": {
+            "id": "5402",
+            "level": 3,
+            "description": "Successful sudo to ROOT executed.",
+            "groups": ["syslog", "sudo"]
+          }
+        }
+      },
+      "expected": {
+        "disposition": ["informational", "false_positive"],
+        "open_case": false
+      }
+    },
+    {
+      "id": "eval-sudoers-denied",
+      "category": "auth_failure",
+      "alert": {
+        "id": "eval-sudoers-denied",
+        "timestamp": "2026-09-06T18:07:20.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "5403",
+        "rule_level": 5,
+        "description": "Attempt to run sudo by unauthorized user.",
+        "full_log": "sudo: guest : user NOT in sudoers ; TTY=pts/1 ; PWD=/home/guest ; USER=root ; COMMAND=/bin/bash",
+        "raw": {
+          "rule": {
+            "id": "5403",
+            "level": 5,
+            "description": "Attempt to run sudo by unauthorized user.",
+            "groups": ["syslog", "sudo"]
+          }
+        }
+      },
+      "expected": {
+        "disposition": ["suspicious"],
+        "open_case": true
+      }
+    },
+    {
+      "id": "eval-rootkit-rootcheck",
+      "category": "true_positive",
+      "alert": {
+        "id": "eval-rootkit-rootcheck",
+        "timestamp": "2026-09-06T18:07:30.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "510",
+        "rule_level": 9,
+        "description": "Host-based anomaly detection event (rootcheck): Rootkit 't0rn' detected.",
+        "full_log": "rootcheck: Rootkit 't0rn' detected.",
+        "raw": {
+          "rule": {
+            "id": "510",
+            "level": 9,
+            "description": "Host-based anomaly detection event (rootcheck): Rootkit 't0rn' detected.",
+            "groups": ["ossec", "rootcheck"]
+          }
+        }
+      },
+      "expected": {
+        "disposition": ["true_positive", "suspicious"],
+        "open_case": true
+      }
+    },
+    {
+      "id": "eval-auth-sshd-multiple",
+      "category": "auth_failure",
+      "alert": {
+        "id": "eval-auth-sshd-multiple",
+        "timestamp": "2026-09-06T18:07:40.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "5712",
+        "rule_level": 10,
+        "description": "sshd: brute force trying to get access to the system.",
+        "full_log": "sshd[4243]: Failed password for root from 203.0.113.91 port 44822 ssh2",
+        "raw": {
+          "rule": {
+            "id": "5712",
+            "level": 10,
+            "description": "sshd: brute force trying to get access to the system.",
+            "groups": ["syslog", "sshd", "authentication_failures"]
+          },
+          "data": {"srcip": "203.0.113.91"}
+        }
+      },
+      "expected": {
+        "disposition": ["suspicious", "true_positive"],
+        "open_case": true
+      }
+    },
+    {
+      "id": "eval-auth-sshd-maxauth",
+      "category": "auth_failure",
+      "alert": {
+        "id": "eval-auth-sshd-maxauth",
+        "timestamp": "2026-09-06T18:07:50.000Z",
+        "agent": "pop-os-native",
+        "rule_id": "5720",
+        "rule_level": 5,
+        "description": "sshd: authentication failed.",
+        "full_log": "sshd[4244]: error: maximum authentication attempts exceeded for invalid user oracle from 198.51.100.20 port 22 ssh2",
+        "raw": {
+          "rule": {
+            "id": "5720",
+            "level": 5,
+            "description": "sshd: authentication failed.",
+            "groups": ["syslog", "sshd", "authentication_failed"]
+          },
+          "data": {"srcip": "198.51.100.20"}
+        }
+      },
+      "expected": {
+        "disposition": ["suspicious"],
+        "open_case": true
+      }
     }
   ]
 }

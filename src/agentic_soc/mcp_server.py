@@ -54,6 +54,8 @@ async def open_case(
     summary: str = "",
     severity: str = "medium",
     recommended_action: str = "",
+    rule_id: Optional[str] = None,
+    source_ip: Optional[str] = None,
 ) -> str:
     """Open a local investigation case in SQLite case memory."""
     return _json(
@@ -64,6 +66,8 @@ async def open_case(
             summary=summary,
             severity=severity,
             recommended_action=recommended_action,
+            rule_id=rule_id,
+            source_ip=source_ip,
         )
     )
 

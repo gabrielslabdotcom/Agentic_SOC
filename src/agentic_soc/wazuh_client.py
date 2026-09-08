@@ -5,6 +5,7 @@ from typing import Any, Optional
 import httpx
 
 from agentic_soc.config import Settings, get_settings
+from agentic_soc.triage import AUTH_FAILURE_GROUPS, AUTH_FAILURE_RULE_IDS
 
 
 def build_alerts_search_body(
@@ -15,16 +16,18 @@ def build_alerts_search_body(
     query_string: Optional[str] = None,
     exclude_rule_ids: Optional[list[str]] = None,
     since: Optional[str] = None,
+    include_auth_min_level: Optional[int] = None,
 ) -> dict[str, Any]:
     """OpenSearch body for wazuh-alerts-*.
 
     With ``since``, sort oldest-first so a truncated burst continues on the next
     poll instead of skipping older alerts in the window.
+
+    ``include_auth_min_level`` ORs in sshd/PAM auth failures at that floor
+    without lowering the global ``min_level`` (Phase C: keep live min-level 8).
     """
     must: list[dict[str, Any]] = []
     must_not: list[dict[str, Any]] = []
-    if min_level > 0:
-        must.append({"range": {"rule.level": {"gte": min_level}}})
     if agent_name:
         must.append({"match": {"agent.name": agent_name}})
     if query_string:
@@ -36,6 +39,38 @@ def build_alerts_search_body(
         ids = [str(x) for x in exclude_rule_ids if str(x).strip()]
         if ids:
             must_not.append({"terms": {"rule.id": ids}})
+
+    level_clause: dict[str, Any] | None = None
+    if min_level > 0:
+        level_clause = {"range": {"rule.level": {"gte": min_level}}}
+
+    auth_clause: dict[str, Any] | None = None
+    if include_auth_min_level is not None:
+        auth_clause = {
+            "bool": {
+                "must": [
+                    {"range": {"rule.level": {"gte": int(include_auth_min_level)}}},
+                    {
+                        "bool": {
+                            "should": [
+                                {"terms": {"rule.groups": sorted(AUTH_FAILURE_GROUPS)}},
+                                {"terms": {"rule.id": sorted(AUTH_FAILURE_RULE_IDS)}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    },
+                ]
+            }
+        }
+
+    if level_clause and auth_clause:
+        must.append(
+            {"bool": {"should": [level_clause, auth_clause], "minimum_should_match": 1}}
+        )
+    elif level_clause:
+        must.append(level_clause)
+    elif auth_clause:
+        must.append(auth_clause)
 
     bool_q: dict[str, Any] = {}
     if must:
@@ -117,6 +152,7 @@ class WazuhClient:
         query_string: Optional[str] = None,
         exclude_rule_ids: Optional[list[str]] = None,
         since: Optional[str] = None,
+        include_auth_min_level: Optional[int] = None,
     ) -> dict[str, Any]:
         body = build_alerts_search_body(
             limit=limit,
@@ -125,6 +161,7 @@ class WazuhClient:
             query_string=query_string,
             exclude_rule_ids=exclude_rule_ids,
             since=since,
+            include_auth_min_level=include_auth_min_level,
         )
 
         url = f"{self.settings.wazuh_indexer_url.rstrip('/')}/wazuh-alerts-*/_search"

@@ -46,6 +46,7 @@ class SocTools:
         query_string: Optional[str] = None,
         exclude_rule_ids: Optional[list[str]] = None,
         since: Optional[str] = None,
+        include_auth_min_level: Optional[int] = None,
     ) -> dict[str, Any]:
         return await self.wazuh.list_alerts(
             limit=limit,
@@ -54,6 +55,7 @@ class SocTools:
             query_string=query_string,
             exclude_rule_ids=exclude_rule_ids,
             since=since,
+            include_auth_min_level=include_auth_min_level,
         )
 
     async def get_alert(self, alert_id: str) -> dict[str, Any]:
@@ -68,6 +70,8 @@ class SocTools:
         summary: str = "",
         severity: str = "medium",
         recommended_action: str = "",
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
     ) -> dict[str, Any]:
         return self.cases.open_case(
             title=title,
@@ -76,6 +80,8 @@ class SocTools:
             summary=summary,
             severity=severity,
             recommended_action=recommended_action,
+            rule_id=rule_id,
+            source_ip=source_ip,
         )
 
     def update_case(
@@ -135,6 +141,32 @@ class SocTools:
             note=note,
             author=author,
         )
+
+    def auto_close_noise(
+        self,
+        case_id: int,
+        *,
+        note: str = "",
+        author: str = "autonomy_loop",
+    ) -> dict[str, Any]:
+        """Close lab noise without HITL paging (no containment)."""
+        return self.cases.auto_close_noise(case_id, note=note, author=author)
+
+    def rejected_similar(
+        self,
+        *,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        days: int = 14,
+    ) -> dict[str, Any]:
+        return self.cases.rejected_similar(
+            rule_id=rule_id,
+            source_ip=source_ip,
+            days=days,
+        )
+
+    def feedback_summary(self, limit: int = 50) -> dict[str, Any]:
+        return self.cases.feedback_summary(limit=limit)
 
     async def enrich_ioc(
         self,

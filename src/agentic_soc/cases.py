@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,7 @@ ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
 # host is stored for inventory, but case-to-case expansion ignores it so every
 # alert on pop-os-native does not show up as "related".
 _FOLLOW_TYPES_FROM_CASE = frozenset({"ip", "user", "hash", "domain"})
+LOG = logging.getLogger(__name__)
 
 
 def normalize_entity(entity_type: str, value: str) -> tuple[str, str]:
@@ -88,6 +90,7 @@ class CaseStore:
                 """
             )
             self._ensure_unique_alert_id(conn)
+            self._ensure_feedback_schema(conn)
 
     @staticmethod
     def _ensure_unique_alert_id(conn: sqlite3.Connection) -> None:
@@ -132,6 +135,36 @@ class CaseStore:
         )
 
     @staticmethod
+    def _ensure_feedback_schema(conn: sqlite3.Connection) -> None:
+        cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(cases)")}
+        if "rule_id" not in cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN rule_id TEXT")
+        if "source_ip" not in cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN source_ip TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS triage_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER,
+                alert_id TEXT,
+                rule_id TEXT,
+                source_ip TEXT,
+                disposition TEXT,
+                approved INTEGER NOT NULL,
+                note TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(case_id) REFERENCES cases(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_triage_feedback_rule_ip
+            ON triage_feedback(rule_id, source_ip, approved)
+            """
+        )
+
+    @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
@@ -144,19 +177,35 @@ class CaseStore:
         summary: str = "",
         severity: str = "medium",
         recommended_action: str = "",
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
     ) -> dict[str, Any]:
         now = self._now()
         aid = (alert_id or "").strip() or None
+        rid = (rule_id or "").strip() or None
+        sip = (source_ip or "").strip() or None
         with self._connect() as conn:
             try:
                 cur = conn.execute(
                     """
                     INSERT INTO cases (
                         title, status, severity, alert_id, agent_name,
-                        summary, recommended_action, created_at, updated_at
-                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?)
+                        summary, recommended_action, created_at, updated_at,
+                        rule_id, source_ip
+                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (title, severity, aid, agent_name, summary, recommended_action, now, now),
+                    (
+                        title,
+                        severity,
+                        aid,
+                        agent_name,
+                        summary,
+                        recommended_action,
+                        now,
+                        now,
+                        rid,
+                        sip,
+                    ),
                 )
                 case_id = cur.lastrowid
             except sqlite3.IntegrityError:
@@ -295,12 +344,162 @@ class CaseStore:
             f"note={detail}\n"
             f"containment=not_executed"
         )
-        return self.update_case(
+        updated = self.update_case(
             case_id,
             status=status,
             note=audit,
             author=author,
         )
+        try:
+            self.record_feedback(case_id, approved=approved, note=detail)
+        except Exception:
+            LOG.warning("failed to record triage feedback for case %s", case_id, exc_info=True)
+        return updated
+
+    def auto_close_noise(
+        self,
+        case_id: int,
+        *,
+        note: str = "",
+        author: str = "autonomy_loop",
+    ) -> dict[str, Any]:
+        """Close a heuristic-noise case without paging Discord / Cursor.
+
+        Records feedback as a reject so the same rule_id+source_ip is skipped.
+        Never executes containment.
+        """
+        case = self.get_case(case_id)
+        if case.get("error"):
+            return case
+        proposed = case.get("recommended_action") or "(none)"
+        detail = note.strip() or "heuristic noise auto-closed (no HITL page)"
+        audit = (
+            f"[auto_closed_noise] CLOSED\n"
+            f"proposed_action={proposed}\n"
+            f"note={detail}\n"
+            f"containment=not_executed\n"
+            f"hitl=not_paged"
+        )
+        updated = self.update_case(
+            case_id,
+            status="auto_closed",
+            note=audit,
+            author=author,
+        )
+        try:
+            self.record_feedback(case_id, approved=False, note=detail)
+        except Exception:
+            LOG.warning("failed to record triage feedback for auto-closed case %s", case_id, exc_info=True)
+        return updated
+
+    def record_feedback(
+        self,
+        case_id: int,
+        *,
+        approved: bool,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Store a human decision for later skip/eval (no containment)."""
+        case = self.get_case(case_id)
+        if case.get("error"):
+            return case
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO triage_feedback (
+                    case_id, alert_id, rule_id, source_ip, disposition,
+                    approved, note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    case_id,
+                    case.get("alert_id"),
+                    case.get("rule_id"),
+                    case.get("source_ip"),
+                    case.get("disposition"),
+                    1 if approved else 0,
+                    note,
+                    now,
+                ),
+            )
+        return {"ok": True, "case_id": case_id, "approved": approved}
+
+    def rejected_similar(
+        self,
+        *,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        days: int = 14,
+    ) -> dict[str, Any]:
+        """True when the same rule_id + source_ip was rejected recently."""
+        rid = (rule_id or "").strip()
+        sip = (source_ip or "").strip()
+        if not rid or not sip:
+            return {"skip": False, "count": 0, "reason": "need_rule_and_source"}
+        cutoff = datetime.now(timezone.utc).timestamp() - max(1, days) * 86400
+        count = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT created_at FROM triage_feedback
+                WHERE approved = 0
+                  AND rule_id = ?
+                  AND source_ip = ?
+                """,
+                (rid, sip),
+            ).fetchall()
+        for row in rows:
+            ts = str(row["created_at"] or "")
+            try:
+                parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                if parsed.timestamp() >= cutoff:
+                    count += 1
+            except ValueError:
+                count += 1
+        return {
+            "skip": count >= 1,
+            "count": count,
+            "reason": "rejected_same_rule_and_source" if count >= 1 else "no_match",
+            "rule_id": rid,
+            "source_ip": sip,
+        }
+
+    def feedback_summary(self, limit: int = 50) -> dict[str, Any]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, case_id, alert_id, rule_id, source_ip, disposition,
+                       approved, note, created_at
+                FROM triage_feedback
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            totals = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS n,
+                    SUM(CASE WHEN approved = 1 THEN 1 ELSE 0 END) AS approved_n,
+                    SUM(CASE WHEN approved = 0 THEN 1 ELSE 0 END) AS rejected_n
+                FROM triage_feedback
+                """
+            ).fetchone()
+        items = [dict(r) for r in rows]
+        for item in items:
+            item["approved"] = bool(item.get("approved"))
+        n = int(totals["n"] or 0) if totals else 0
+        approved_n = int(totals["approved_n"] or 0) if totals else 0
+        rejected_n = int(totals["rejected_n"] or 0) if totals else 0
+        return {
+            "count": n,
+            "approved": approved_n,
+            "rejected": rejected_n,
+            "items": items,
+        }
 
     def upsert_entity(self, entity_type: str, value: str) -> dict[str, Any]:
         """Insert or refresh an entity (ip / user / host / hash / domain)."""

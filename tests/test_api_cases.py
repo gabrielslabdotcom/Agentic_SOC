@@ -103,6 +103,36 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     assert "Agentic SOC Analyst" in dash.text
     assert "instance-banner" in dash.text
     assert "min-level 8" in dash.text
+    assert "Cursor investigation" in dash.text
+    assert "rule_id" in dash.text
+    assert "auto-close" in dash.text
+
+
+def test_approve_records_feedback(client: TestClient) -> None:
+    opened = client.post(
+        "/tools/open_case",
+        json={
+            "title": "SSH auth",
+            "alert_id": "auth-1",
+            "rule_id": "5710",
+            "source_ip": "203.0.113.80",
+            "recommended_action": "investigate_and_document",
+        },
+    )
+    case_id = opened.json()["id"]
+    rejected = client.post(
+        f"/tools/approve_case/{case_id}",
+        json={"approved": False, "note": "known lab hydra", "author": "pytest"},
+    )
+    assert rejected.status_code == 200
+    summary = client.get("/tools/feedback_summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["rejected"] >= 1
+    assert any(
+        item["case_id"] == case_id and item["approved"] is False
+        for item in body["items"]
+    )
 
 
 def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,3 +149,4 @@ def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert data["instance"] == "pop-live"
     assert "LIVE Pop" in data["banner"]
     assert data["containment_enabled"] is False
+    assert "OR" in data["note"] or "auth" in data["note"].lower()

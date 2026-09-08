@@ -118,6 +118,7 @@ Uses heuristics in `src/agentic_soc/triage.py` plus VirusTotal when public IOCs 
 ```bash
 # Labeled triage quality (exits non-zero if below threshold)
 python scripts/eval_triage.py
+python scripts/eval_feedback.py
 
 # Approve / reject a proposed action (still no auto-containment)
 python scripts/approve_case.py --case-id 1 --approve --note "looks like lab scan"
@@ -128,9 +129,9 @@ Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/ -q`.
 
 ## Discord + Pop!_OS autonomy (already live)
 
-Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval (record-only Approve / Reject).
+Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true` (auth L5 OR'd in), `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New **suspicious** cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval. Informational / FP that still pass the open gate auto-close without Discord.
 
-Auth failures at Wazuh **level 5** are covered by the eval harness, but the **live loop does not fetch them** (min-level 8). That is deliberate noise control until Phase C.
+Auth failures at Wazuh **level 5** are OR'd into the live indexer query (`AUTONOMY_INCLUDE_AUTH`, default on) without lowering `AUTONOMY_MIN_LEVEL` from 8. A human **Reject** on the same `rule_id` + source IP skips repeats for 14 days. Informational / false-positive cases that still pass the open gate may **auto-close** (`AUTONOMY_AUTO_CLOSE_NOISE`) without Discord or Cursor. Suspicious / true-positive stay HITL. Containment is still never executed.
 
 ```bash
 # Status from this Mac
@@ -146,7 +147,7 @@ Open live cases from the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127
 
 ## Mac-offline LLM (Cursor cloud — already enabled)
 
-Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. Repo `https://github.com/gabrielslabdotcom/Agentic_SOC`; Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Not** Automations / Neo4j / **Hydra** (Hydra breaks `sshd`). **No** auto-containment. Public cloud cannot reach LAN Wazuh without a tunnel or self-hosted pool — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
+Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. When the run finishes, **Pop copies the final reply onto the case** and Discord sends a follow-up. Repo `https://github.com/gabrielslabdotcom/Agentic_SOC`; Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Not** Automations / Neo4j / **Hydra** (Hydra breaks `sshd`). **No** auto-containment. Public cloud still cannot reach LAN Wazuh — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
 
 ```bash
 # Dry-run on Pop (no need to re-set keys)
@@ -157,7 +158,8 @@ ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scrip
 
 Phase A (HITL ops) is in this repo: instance banners, tunnel on **8081**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
 
-1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings and Approve / Reject via the **8081** tunneled dashboard (record-only). **No auto-containment.**
-2. **Phase B (later):** close the Cursor investigation loop so notes land on the case — still no containment.
-3. **Phase C (later):** triage quality — grow `evals/labeled_alerts.json`; decide whether live min-level 8 should also ingest auth L5; learn from Approve / Reject. Do **not** lower `AUTONOMY_MIN_LEVEL` until that phase.
-4. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra.
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject via the **8081** tunneled dashboard (record-only). **No auto-containment.**
+2. **Phase B:** Cursor final reply is stored on the case; dashboard shows **Cursor investigation**; Discord follow-up when it lands.
+3. **Phase C:** live auth L5 via OR query (min-level stays 8); Approve / Reject skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`.
+4. **Phase D (this repo):** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor, no containment. Suspicious stays HITL.
+5. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra / auto-containment.

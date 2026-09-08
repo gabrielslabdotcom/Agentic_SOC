@@ -29,12 +29,12 @@ This lab is already running. Do **not** recreate the Discord webhook or re-boots
 |-------|--------|
 | Wazuh Docker + native agent | Live on Pop (`192.168.50.254`) |
 | Discord notifies | Live (`DISCORD_WEBHOOK_URL` is set on Pop) |
-| Autonomy systemd | `agentic-soc-autonomy` — `AUTONOMY_MIN_LEVEL=8`, excludes lone UFW `100100`, `AUTONOMY_CURSOR_AGENT=true` |
+| Autonomy systemd | `agentic-soc-autonomy` — `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true`, `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, `AUTONOMY_CURSOR_AGENT=true` |
 | Cursor cloud hook | Enabled on Pop; repo `https://github.com/gabrielslabdotcom/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
 | Analyst UI for live Discord cases | FastAPI on Pop `127.0.0.1:8080` (`agentic-soc-dashboard`). From the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ (banner **LIVE Pop cases**). Do not use Mac port 8080 for the tunnel. |
 | Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
 | Approve / Reject | Record-only (status + note). Never containment. Discord embeds and the dashboard glossary say the same thing. |
-| Live vs eval | Eval fixtures include sshd/PAM **level 5** auth failures. Live `AUTONOMY_MIN_LEVEL=8` does **not** fetch those. Lowering min-level is **Phase C**, not a live bug. |
+| Live vs eval | Live `AUTONOMY_MIN_LEVEL=8` is unchanged. sshd/PAM **level 5** auth failures are OR'd in (`AUTONOMY_INCLUDE_AUTH`). Eval fixtures cover the same auth + sudo/rootkit shapes. |
 | Entity correlation | SQLite `entities` + `entity_links` + `find_related`. Neo4j remains deferred. |
 
 **Lab-only default passwords (Wazuh Docker single-node):**
@@ -447,7 +447,7 @@ python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 4. **Triage eval** — `python scripts/eval_triage.py` against `evals/labeled_alerts.json` (§11.3).
 5. **SQLite entity correlation** is implemented (`entities` / `entity_links` / `find_related` — see §14). Graduate to Neo4j only if multi-hop graph queries, entity volume, or relationship types outgrow SQLite. Those criteria remain deferred.
 6. **AbuseIPDB** — set `ABUSEIPDB_API_KEY` in `.env` when you add that client.
-7. Live autonomy stays at **min-level 8**. Auth L5 in the eval set is **Phase C** (do not lower `AUTONOMY_MIN_LEVEL` yet). Cursor note write-back is **Phase B**.
+7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. Reject on the same `rule_id`+source IP skips repeats (`python scripts/eval_feedback.py`). Informational/FP that still open may auto-close without Discord (`AUTONOMY_AUTO_CLOSE_NOISE`). Cursor investigation notes land on HITL cases (Phase B). **No containment.**
 8. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
 
 ### 8.1 Seeing nmap / port-scan alerts
@@ -601,6 +601,8 @@ Cases land in `data/cases.sqlite`. Each opened case gets a `propose_action` note
 python scripts/eval_triage.py
 # optional detail:
 python scripts/eval_triage.py --json-out data/eval_report.json
+# human Approve / Reject skip keys (rule_id + source IP):
+python scripts/eval_feedback.py
 ```
 
 Interpreting scores:
@@ -683,7 +685,7 @@ Code lives at `/home/admin/Agentic_SOC`. User units:
 | `~/.config/systemd/user/agentic-soc-autonomy.service` | Triage loop + Discord + Cursor cloud |
 | `~/.config/systemd/user/agentic-soc-dashboard.service` | FastAPI analyst UI on `127.0.0.1:8080` (§12.4) |
 
-Autonomy knobs (unit file + `.env`): `AUTONOMY_INTERVAL=120`, **`AUTONOMY_MIN_LEVEL=8`**, `AUTONOMY_EXCLUDE_UFW_BLOCKS=true` (skips lone rule `100100`), `AUTONOMY_MAX_CASES`, `AUTONOMY_DISCORD=true`, **`AUTONOMY_CURSOR_AGENT=true`**. Use min-level `5` only if you need low-level auth alerts.
+Autonomy knobs (unit file + `.env`): `AUTONOMY_INTERVAL=120`, **`AUTONOMY_MIN_LEVEL=8`**, `AUTONOMY_INCLUDE_AUTH=true` (OR in sshd/PAM auth at level 5; do **not** lower min-level), `AUTONOMY_FEEDBACK_SKIP=true` (skip same `rule_id`+source IP after a reject), `AUTONOMY_AUTO_CLOSE_NOISE=true` (auto-close informational/FP without Discord; suspicious stays HITL), `AUTONOMY_EXCLUDE_UFW_BLOCKS=true` (skips lone rule `100100`), `AUTONOMY_MAX_CASES`, `AUTONOMY_DISCORD=true`, **`AUTONOMY_CURSOR_AGENT=true`**.
 
 Linger (already needed once so the user service survives logout):
 
@@ -769,21 +771,23 @@ sequenceDiagram
   participant Loop as autonomy_loop (systemd)
   participant Discord as Discord webhook
   participant SDK as Cursor SDK cloud VM
-  participant API as FastAPI tools API (optional)
 
   Loop->>Wazuh: poll / score / open case
   Loop->>Discord: notify case opened
-  Loop-->>SDK: Agent.prompt (fire-and-forget, if enabled)
+  Loop-->>SDK: Agent.prompt (background thread)
   Note over SDK: investigate from case payload + repo playbooks
-  SDK-->>API: optional PATCH /tools/update_case (if reachable)
-  Note over Loop,Discord: human still approves via approve_case.py
+  SDK-->>Loop: final reply (SDK result)
+  Loop->>Loop: append note to SQLite case
+  Loop->>Discord: investigation note ready
+  Note over Loop,Discord: human still approves via dashboard / approve_case.py
 ```
 
 | Role | Who | What |
 |------|-----|------|
 | Detection + case open | Pop `autonomy_loop` | Poll Wazuh, score, open SQLite case, `propose_action` only |
 | Human ping | Discord | Embed with context + approve/reject CLI snippets |
-| LLM investigation | Cursor **cloud** agent | Propose-only note from case payload + cloned repo docs |
+| LLM investigation | Cursor **cloud** agent | Propose-only final reply; Pop copies it onto the case |
+| Investigation ping | Discord | Follow-up embed when the note lands |
 | Approval | Human | `approve_case.py` / dashboard — still required; no containment |
 
 **Mac-offline behavior:** the Mac does not need to be online. Pop calls the Cursor API with `CURSOR_API_KEY`; the agent runs on a Cursor-hosted VM (or your self-hosted pool). Discord still fires from Pop.
@@ -792,13 +796,13 @@ sequenceDiagram
 
 Public Cursor cloud VMs **cannot** reach `192.168.50.254` (Wazuh / Pop FastAPI on the lab LAN) without extra networking.
 
-| Option | Live Wazuh from agent? | Case note write-back? | When to use |
+| Option | Live Wazuh from agent? | Case note on SQLite? | When to use |
 |--------|------------------------|----------------------|-------------|
-| **A. Public cloud (v1 default)** | No | Only if you expose FastAPI via a **tunnel** and set `AGENTIC_SOC_API_URL` | Simplest; enrich from **case payload + repo playbooks**; paste note from agent transcript if no tunnel |
-| **B. Tunnel** | Possible if tunnel includes Wazuh ports | Yes — point `AGENTIC_SOC_API_URL` at the public tunnel URL | Want cloud VM to reach Pop services without self-hosting |
-| **C. Self-hosted pool on Pop** | Yes (worker is on LAN) | Yes — `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` | Enterprise self-hosted workers; see [Self-hosted pool](https://cursor.com/docs/cloud-agent/self-hosted-pool) |
+| **A. Public cloud (this lab)** | No | **Yes** — Pop copies `Agent.prompt` final reply onto the case. No LAN tunnel required. | Default |
+| **B. Tunnel** | Possible if tunnel includes Wazuh ports | Also possible via `AGENTIC_SOC_API_URL` (optional extra) | Want the VM itself to call Pop APIs |
+| **C. Self-hosted pool on Pop** | Yes (worker is on LAN) | Yes — local persist still works; optional `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` | Enterprise self-hosted workers |
 
-**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC` (clone works after GitHub App access was granted). FastAPI on Pop is localhost-only (`agentic-soc-dashboard`); analysts tunnel it from the Mac (§12.4). Optional write-back / self-hosted pool is not required for v1.
+**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC`. Pop persists the investigation note locally, then Discord pings “note ready”. Analysts read it on the tunneled dashboard (§12.4) before Approve / Reject. HTTP write-back from the VM is optional, not required.
 
 ### 13.3 Status on Pop (already installed)
 
@@ -822,7 +826,7 @@ If you must refresh the unit file after a code sync, copy + daemon-reload, then 
 | `CURSOR_AGENT_REPO` | `https://github.com/gabrielslabdotcom/Agentic_SOC` | SCM URL cloned into the cloud VM |
 | `CURSOR_AGENT_STARTING_REF` | `main` | Branch / ref for the clone |
 | `CURSOR_AGENT_NOREPO_FALLBACK` | `true` | If SCM fails, retry no-repo (case JSON only) |
-| `AGENTIC_SOC_API_URL` | empty (optional) | Base URL for `PATCH /tools/update_case/{id}` write-back |
+| `AGENTIC_SOC_API_URL` | empty (optional) | Unused for Phase B persist. Optional extra if the cloud VM should PATCH the case itself |
 | `CURSOR_CLOUD_POOL` | empty | Self-hosted pool name (`CloudAgentOptions.env type=pool`) |
 
 CLI mirrors: `--cursor-agent` / `--no-cursor-agent`, `--cursor-dry-run`.

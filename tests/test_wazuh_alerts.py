@@ -29,3 +29,31 @@ def test_blank_since_treated_as_absent() -> None:
     body = build_alerts_search_body(since="  ")
     assert body["sort"] == [{"@timestamp": {"order": "desc"}}]
     assert body["query"] == {"match_all": {}}
+
+
+def test_auth_or_query_keeps_min_level() -> None:
+    from agentic_soc.triage import AUTH_FAILURE_GROUPS, AUTH_FAILURE_RULE_IDS
+
+    body = build_alerts_search_body(
+        limit=40,
+        min_level=8,
+        include_auth_min_level=5,
+    )
+    must = body["query"]["bool"]["must"]
+    or_clause = None
+    for clause in must:
+        inner = clause.get("bool") or {}
+        if "should" in inner:
+            or_clause = inner
+            break
+    assert or_clause is not None
+    should = or_clause["should"]
+    assert {"range": {"rule.level": {"gte": 8}}} in should
+    auth = next(c for c in should if c != {"range": {"rule.level": {"gte": 8}}})
+    auth_must = auth["bool"]["must"]
+    assert {"range": {"rule.level": {"gte": 5}}} in auth_must
+    auth_should = auth_must[1]["bool"]["should"]
+    assert {"terms": {"rule.groups": sorted(AUTH_FAILURE_GROUPS)}} in auth_should
+    assert {"terms": {"rule.id": sorted(AUTH_FAILURE_RULE_IDS)}} in auth_should
+    # Global floor stays 8 — no lone gte:5 at the top-level must.
+    assert {"range": {"rule.level": {"gte": 5}}} not in must

@@ -23,6 +23,7 @@ if str(_SRC) not in sys.path:
 from agentic_soc.triage import (  # noqa: E402
     build_summary,
     extract_iocs,
+    extract_source_ip,
     score_alert,
     should_open_case,
 )
@@ -181,6 +182,8 @@ async def triage_once(args: argparse.Namespace) -> dict[str, Any]:
             summary=summary,
             severity=judgment["severity"],
             recommended_action=judgment["recommended_action"],
+            rule_id=str(alert.get("rule_id") or "") or None,
+            source_ip=extract_source_ip(alert),
         )
         tools.update_case(
             case["id"],

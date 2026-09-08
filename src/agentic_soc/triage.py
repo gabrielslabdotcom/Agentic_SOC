@@ -52,6 +52,10 @@ RULE_PORT_SCAN_MULTI = "100101"
 RULE_PORT_SCAN_LAB = "100102"
 PORT_SCAN_AGGREGATE_RULES = frozenset({RULE_PORT_SCAN_MULTI, RULE_PORT_SCAN_LAB})
 
+# Common Wazuh sshd/PAM auth-failure rule ids (often level 5)
+AUTH_FAILURE_RULE_IDS = frozenset({"5710", "5712", "5716", "5720", "5503", "5551"})
+AUTH_FAILURE_GROUPS = frozenset({"authentication_failed", "authentication_failures"})
+
 # Descriptions / rule groups that are usually benign lab noise
 _BENIGN_PATTERNS = (
     "pam: login session opened",
@@ -95,6 +99,7 @@ _SUSPICIOUS_PATTERNS = (
 UFW_BLOCK_CLUSTER_MIN = 5
 # Informational / FP alerts at or above this level can still open cases
 DEFAULT_OPEN_LEVEL_THRESHOLD = 10
+NOISE_DISPOSITIONS = frozenset({"false_positive", "informational"})
 
 
 def _walk_strings(obj: Any, out: list[str], depth: int = 0) -> None:
@@ -250,7 +255,42 @@ def is_auth_failure(alert: dict[str, Any]) -> bool:
         return True
     if "authentication_failed" in groups or "authentication_failures" in groups:
         return True
+    full = (alert.get("full_log") or "").lower()
+    blob = f"{desc} {full}"
+    if any(
+        p in blob
+        for p in (
+            "not in the sudoers",
+            "attempt to run sudo by unauthorized",
+            "incorrect password attempt",
+        )
+    ):
+        return True
     return False
+
+
+def is_successful_sudo(alert: dict[str, Any]) -> bool:
+    """True for routine sudo command logs, not sudoers denials or auth failures."""
+    if is_auth_failure(alert):
+        return False
+    desc = _description(alert)
+    full = (alert.get("full_log") or "").lower()
+    blob = f"{desc} {full}"
+    if any(
+        p in blob
+        for p in (
+            "not in the sudoers",
+            "incorrect password",
+            "authentication failure",
+            "command not allowed",
+            "unauthorized user",
+        )
+    ):
+        return False
+    return any(
+        p in blob
+        for p in ("sudo:", "successful sudo", "sudo executed")
+    )
 
 
 def is_port_scan_aggregate(alert: dict[str, Any]) -> bool:
@@ -340,6 +380,30 @@ def should_open_case(
         }
 
     return {"open": True, "reason": "open", "cluster_size": None}
+
+
+def is_auto_close_noise(
+    alert: dict[str, Any],
+    judgment: dict[str, Any],
+    *,
+    enrichments: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Limited auto-close of lab noise (Phase D). Never containment.
+
+    Suspicious and true_positive always stay HITL. Malicious VT hits stay HITL.
+    """
+    del alert  # reserved for future rule-id allowlists
+    disp = str(judgment.get("disposition") or "")
+    if disp not in NOISE_DISPOSITIONS:
+        return {"close": False, "reason": "not_noise_disposition"}
+    for item in enrichments or []:
+        try:
+            mal = int(item.get("malicious") or 0)
+        except (TypeError, ValueError):
+            mal = 0
+        if mal > 0:
+            return {"close": False, "reason": "enrichment_malicious"}
+    return {"close": True, "reason": "heuristic_noise"}
 
 
 def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
@@ -460,6 +524,22 @@ def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]
             "confidence": confidence,
             "severity": severity,
             "score": round(score, 2),
+            "reasons": reasons,
+            "recommended_action": action,
+        }
+
+    if is_successful_sudo(alert) and level_i < 7:
+        score -= 3
+        reasons.append("successful sudo command log (lab noise unless denied)")
+        disposition = "informational"
+        confidence = 0.7
+        severity = "low"
+        action = _recommend_action(disposition, level_i, 0)
+        return {
+            "disposition": disposition,
+            "confidence": confidence,
+            "severity": severity,
+            "score": round(max(score, 0.0), 2),
             "reasons": reasons,
             "recommended_action": action,
         }

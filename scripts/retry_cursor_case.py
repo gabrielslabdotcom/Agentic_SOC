@@ -36,6 +36,8 @@ def main() -> int:
     print(
         "ok=",
         out.get("ok"),
+        "persisted=",
+        out.get("persisted"),
         "status=",
         out.get("status"),
         "run_id=",

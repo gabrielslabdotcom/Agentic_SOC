@@ -32,6 +32,7 @@ from agentic_soc.triage import (  # noqa: E402
     build_summary,
     extract_iocs,
     extract_source_ip,
+    is_auto_close_noise,
     score_alert,
     should_open_case,
 )
@@ -56,8 +57,34 @@ def max_alert_timestamp(alerts: list[dict[str, Any]]) -> str | None:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Agentic SOC autonomous triage loop")
     p.add_argument("--interval", type=int, default=int(os.environ.get("AUTONOMY_INTERVAL", "120")))
-    # Default 8: skip level-5 UFW block floods; auth (often L5) needs --min-level 5 if desired
+    # Default 8: skip level-5 UFW block floods. Auth L5 is OR'd in via --include-auth.
     p.add_argument("--min-level", type=int, default=int(os.environ.get("AUTONOMY_MIN_LEVEL", "8")))
+    p.add_argument(
+        "--include-auth",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("AUTONOMY_INCLUDE_AUTH", "true").lower()
+        in ("1", "true", "yes"),
+        help="Also fetch sshd/PAM auth failures at --auth-min-level without lowering min-level",
+    )
+    p.add_argument(
+        "--auth-min-level",
+        type=int,
+        default=int(os.environ.get("AUTONOMY_AUTH_MIN_LEVEL", "5")),
+    )
+    p.add_argument(
+        "--feedback-skip",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("AUTONOMY_FEEDBACK_SKIP", "true").lower()
+        in ("1", "true", "yes"),
+        help="Skip opening when the same rule_id+source_ip was recently rejected",
+    )
+    p.add_argument(
+        "--auto-close-noise",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("AUTONOMY_AUTO_CLOSE_NOISE", "true").lower()
+        in ("1", "true", "yes"),
+        help="Auto-close informational/FP cases without Discord/Cursor (still no containment)",
+    )
     p.add_argument("--limit", type=int, default=int(os.environ.get("AUTONOMY_LIMIT", "40")))
     p.add_argument("--max-cases", type=int, default=int(os.environ.get("AUTONOMY_MAX_CASES", "10")))
     p.add_argument(
@@ -150,6 +177,7 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         "alerts_fetched": 0,
         "cases_opened": [],
         "skipped": 0,
+        "auto_closed": 0,
         "discord": [],
         "cursor_agent": [],
     }
@@ -163,6 +191,7 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             agent_name=args.agent_name or None,
             exclude_rule_ids=exclude,
             since=since,
+            include_auth_min_level=args.auth_min_level if args.include_auth else None,
         )
     except Exception as exc:  # noqa: BLE001
         LOG.exception("Failed to fetch alerts: %s", exc)
@@ -173,10 +202,12 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
     report["alerts_fetched"] = len(alerts)
     report["since"] = since
     LOG.info(
-        "cycle: fetched=%s total≈%s min_level=%s agent=%s exclude_ufw=%s since=%s",
+        "cycle: fetched=%s total≈%s min_level=%s include_auth=%s auth_min=%s agent=%s exclude_ufw=%s since=%s",
         len(alerts),
         alerts_resp.get("total"),
         args.min_level,
+        bool(args.include_auth),
+        args.auth_min_level if args.include_auth else None,
         args.agent_name,
         bool(args.exclude_ufw_blocks),
         since,
@@ -207,13 +238,28 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         if alert_id and alert_id in known_cases:
             report["skipped"] += 1
             continue
-        if opened >= args.max_cases:
-            LOG.warning("max-cases (%s) reached this cycle", args.max_cases)
-            break
+        src_ip = extract_source_ip(alert)
+        rule_id = str(alert.get("rule_id") or "")
+        if args.feedback_skip:
+            fb = tools.rejected_similar(rule_id=rule_id or None, source_ip=src_ip)
+            if fb.get("skip"):
+                LOG.info(
+                    "skip feedback-rejected rule=%s src=%s count=%s",
+                    rule_id,
+                    src_ip,
+                    fb.get("count"),
+                )
+                report["skipped"] += 1
+                continue
 
         enrichments = await _enrich(tools, iocs, args.enrich)
         if enrichments:
             judgment = score_alert(alert, enrichments)
+        noise = is_auto_close_noise(alert, judgment, enrichments=enrichments)
+        auto_noise = bool(args.auto_close_noise) and bool(noise.get("close"))
+        if not auto_noise and opened >= args.max_cases:
+            LOG.warning("max-cases (%s) reached this cycle", args.max_cases)
+            break
         summary = f"[autonomy_loop]\n{build_summary(alert, judgment, enrichments)}"
         case = tools.open_case(
             title=f"[auto][{judgment['disposition']}] {alert.get('description') or 'alert'}",
@@ -222,6 +268,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             summary=summary,
             severity=judgment["severity"],
             recommended_action=judgment["recommended_action"],
+            rule_id=rule_id or None,
+            source_ip=src_ip,
         )
         if case.get("duplicate"):
             LOG.info("duplicate alert_id=%s already case #%s — skip notify", alert_id, case.get("id"))
@@ -253,6 +301,25 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             )
         except Exception as exc:  # noqa: BLE001
             LOG.warning("entity correlation failed case #%s: %s", case["id"], exc)
+
+        if auto_noise:
+            closed = tools.auto_close_noise(
+                case["id"],
+                note=f"{noise.get('reason')}: {judgment['disposition']}",
+                author="autonomy_loop",
+            )
+            report["auto_closed"] += 1
+            if alert_id:
+                known_cases.add(alert_id)
+            LOG.info(
+                "auto-closed noise case #%s disposition=%s reason=%s | %s",
+                closed.get("id"),
+                judgment["disposition"],
+                noise.get("reason"),
+                alert.get("description"),
+            )
+            continue
+
         opened += 1
         if alert_id:
             known_cases.add(alert_id)
@@ -356,6 +423,7 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         "alerts_fetched": report["alerts_fetched"],
         "opened": opened,
         "skipped": report["skipped"],
+        "auto_closed": report["auto_closed"],
         "since": since,
         "last_seen_timestamp": state.get("last_seen_timestamp"),
         "truncated": bool(since) and len(alerts) >= args.limit,
@@ -397,9 +465,10 @@ async def main_async(args: argparse.Namespace) -> int:
             report = await run_cycle(args, state)
             _save_state(state_path, state)
             LOG.info(
-                "cycle done: fetched=%s opened=%s skipped=%s",
+                "cycle done: fetched=%s opened=%s auto_closed=%s skipped=%s",
                 report.get("alerts_fetched"),
                 len(report.get("cases_opened") or []),
+                report.get("auto_closed"),
                 report.get("skipped"),
             )
         except Exception:  # noqa: BLE001

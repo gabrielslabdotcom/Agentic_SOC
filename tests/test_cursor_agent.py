@@ -7,12 +7,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agentic_soc.cases import CaseStore
 from agentic_soc.config import Settings
 from agentic_soc.cursor_agent import (
+    INVESTIGATION_AUTHOR,
     build_investigation_prompt,
     cursor_agent_enabled,
     kick_cursor_investigation,
     maybe_kick_after_case_open,
+    persist_investigation_note,
+    extract_result_text,
 )
 
 
@@ -39,6 +43,17 @@ def _case(**overrides: object) -> dict:
     return base
 
 
+def _settings(tmp_path, **kwargs: object) -> Settings:
+    base = dict(
+        cases_db_path=str(tmp_path / "cases.sqlite"),
+        discord_webhook_url="",
+        wazuh_api_password="x",
+        wazuh_indexer_password="x",
+    )
+    base.update(kwargs)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
 def test_build_prompt_includes_case_fields_and_propose_only():
     prompt = build_investigation_prompt(
         _case(),
@@ -49,15 +64,18 @@ def test_build_prompt_includes_case_fields_and_propose_only():
     assert "investigate_and_document" in prompt
     assert "Propose only" in prompt
     assert "Never execute containment" in prompt or "never" in prompt.lower()
-    assert "PATCH" in prompt
+    assert "final reply" in prompt.lower()
+    assert "automatically" in prompt.lower()
     assert "/tools/update_case/42" in prompt
     assert "203.0.113.9" in prompt
 
 
-def test_build_prompt_without_api_url_asks_for_paste():
+def test_build_prompt_without_api_url_auto_copy():
     prompt = build_investigation_prompt(_case(), api_url="")
-    assert "AGENTIC_SOC_API_URL` is not set" in prompt or "not set" in prompt
-    assert "paste" in prompt.lower()
+    assert "automatically" in prompt.lower()
+    assert "final reply" in prompt.lower()
+    assert "192.168.50.254" in prompt
+    assert "approve/reject" in prompt.lower()
 
 
 def test_cursor_agent_enabled_defaults_false(monkeypatch: pytest.MonkeyPatch):
@@ -122,16 +140,71 @@ def test_maybe_kick_skipped_when_disabled(monkeypatch: pytest.MonkeyPatch):
     assert out.get("skipped") is True
 
 
-def test_run_cloud_prompt_mocked_sdk():
+def test_persist_investigation_note(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    store = CaseStore(settings.cases_path)
+    opened = store.open_case(title="port scan")
+    out = persist_investigation_note(
+        opened["id"],
+        "lab nmap from Kali; document only",
+        outcome={"status": "finished", "run_id": "run-1", "agent_id": "bc-abc"},
+        settings=settings,
+    )
+    assert out["ok"] is True
+    got = store.get_case(opened["id"])
+    last = got["notes"][-1]
+    assert last["author"] == INVESTIGATION_AUTHOR
+    assert "[cursor_investigation]" in last["note"]
+    assert "lab nmap from Kali" in last["note"]
+    assert "containment=not_executed" in last["note"]
+
+
+def test_extract_result_text() -> None:
+    assert extract_result_text(SimpleNamespace(result="  hello  ")) == "hello"
+    assert extract_result_text(None) == ""
+    assert extract_result_text("plain") == "plain"
+
+
+def test_notify_investigation_ready_embed() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from agentic_soc.discord_notify import DiscordNotifier
+
     settings = Settings(
+        discord_webhook_url="https://example.invalid/hook",
+        wazuh_api_password="x",
+        wazuh_indexer_password="x",
+    )
+    notifier = DiscordNotifier(settings)
+    mock_send = AsyncMock(return_value={"ok": True})
+    with patch.object(notifier, "send_raw", mock_send):
+        asyncio.run(
+            notifier.notify_investigation_ready(
+                {"id": 7, "title": "scan", "disposition": "suspicious", "severity": "high"},
+                note="[cursor_investigation]\nstatus=finished\n\nLooks like lab nmap.",
+                outcome={"run_id": "run-9"},
+            )
+        )
+    mock_send.assert_awaited_once()
+    kwargs = mock_send.await_args.kwargs
+    assert "case #7" in kwargs["content"]
+    embed = kwargs["embeds"][0]
+    assert "Investigation note ready #7" in embed["title"]
+    fields = {f["name"]: f["value"] for f in embed["fields"]}
+    assert "lab nmap" in fields["Note preview"]
+    assert "containment" in fields["Next"].lower()
+
+def test_run_cloud_prompt_mocked_sdk(tmp_path):
+    settings = _settings(
+        tmp_path,
         cursor_api_key="cursor_test_key",
         cursor_agent_model="composer-2.5",
         cursor_agent_repo="https://github.com/example/Agentic_SOC",
         cursor_agent_starting_ref="main",
         agentic_soc_api_url="http://127.0.0.1:8080",
-        wazuh_api_password="x",
-        wazuh_indexer_password="x",
     )
+    opened = CaseStore(settings.cases_path).open_case(title="ssh fail")
 
     fake_result = SimpleNamespace(
         status="finished",
@@ -158,20 +231,25 @@ def test_run_cloud_prompt_mocked_sdk():
             )
         },
     ):
-        # Re-import path uses deferred import inside _run_cloud_prompt
-        out = kick_cursor_investigation(_case(), settings=settings, wait=True)
+        out = kick_cursor_investigation(
+            _case(id=opened["id"]),
+            settings=settings,
+            wait=True,
+        )
 
     assert out["ok"] is True
     assert out["waited"] is True
+    assert out.get("persisted") is True
     mock_agent.prompt.assert_called_once()
+    notes = CaseStore(settings.cases_path).get_case(opened["id"])["notes"]
+    assert any("lab noise" in (n.get("note") or "") for n in notes)
 
 
-def test_sdk_startup_error_fail_soft():
-    settings = Settings(
+def test_sdk_startup_error_fail_soft(tmp_path):
+    settings = _settings(
+        tmp_path,
         cursor_api_key="cursor_test_key",
         cursor_agent_repo="https://github.com/example/Agentic_SOC",
-        wazuh_api_password="x",
-        wazuh_indexer_password="x",
     )
 
     class Boom(Exception):
@@ -200,14 +278,14 @@ def test_sdk_startup_error_fail_soft():
     assert "auth failed" in str(out.get("error") or "")
 
 
-def test_scm_access_error_retries_norepo():
-    settings = Settings(
+def test_scm_access_error_retries_norepo(tmp_path):
+    settings = _settings(
+        tmp_path,
         cursor_api_key="cursor_test_key",
         cursor_agent_repo="https://github.com/example/Agentic_SOC",
         cursor_agent_norepo_fallback=True,
-        wazuh_api_password="x",
-        wazuh_indexer_password="x",
     )
+    opened = CaseStore(settings.cases_path).open_case(title="scm")
 
     class ScmErr(Exception):
         message = (
@@ -237,10 +315,15 @@ def test_scm_access_error_retries_norepo():
             )
         },
     ):
-        out = kick_cursor_investigation(_case(), settings=settings, wait=True)
+        out = kick_cursor_investigation(
+            _case(id=opened["id"]),
+            settings=settings,
+            wait=True,
+        )
 
     assert out["ok"] is True
     assert mock_agent.prompt.call_count == 2
+    assert out.get("persisted") is True
 
 
 def test_maybe_kick_never_raises(monkeypatch: pytest.MonkeyPatch):

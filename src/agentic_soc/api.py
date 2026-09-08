@@ -30,6 +30,8 @@ class OpenCaseBody(BaseModel):
     summary: str = ""
     severity: str = "medium"
     recommended_action: str = ""
+    rule_id: Optional[str] = None
+    source_ip: Optional[str] = None
 
 
 class UpdateCaseBody(BaseModel):
@@ -89,9 +91,10 @@ def ui_config() -> dict[str, Any]:
     if live:
         note = (
             "LIVE Pop cases (Discord / autonomy DB). Approve / Reject record status + note only. "
-            "Containment is never executed. Live loop uses AUTONOMY_MIN_LEVEL "
-            f"(default {min_level}); auth failures at Wazuh level 5 are eval-covered but "
-            "not fetched until Phase C."
+            "Containment is never executed. Live min-level stays 8; sshd/PAM auth failures "
+            "at level 5 are OR'd in (AUTONOMY_INCLUDE_AUTH). A reject on the same "
+            "rule_id+source IP skips repeats. Informational/FP cases may auto-close "
+            "without Discord (AUTONOMY_AUTO_CLOSE_NOISE). Still no containment."
         )
         banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
     else:
@@ -109,6 +112,8 @@ def ui_config() -> dict[str, Any]:
         "lab_mode": True,
         "containment_enabled": False,
         "autonomy_min_level": min_level,
+        "include_auth": os.environ.get("AUTONOMY_INCLUDE_AUTH", "true"),
+        "auto_close_noise": os.environ.get("AUTONOMY_AUTO_CLOSE_NOISE", "true"),
         "banner": banner,
         "note": note,
     }
@@ -190,6 +195,12 @@ def approve_case(case_id: int, body: ApproveCaseBody) -> dict[str, Any]:
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
     return result
+
+
+@app.get("/tools/feedback_summary")
+def feedback_summary(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    """Human Approve / Reject history used to skip repeat lab noise."""
+    return get_tools().feedback_summary(limit=limit)
 
 
 @app.post("/tools/propose_action/{case_id}")

@@ -16,6 +16,10 @@ Environment=AUTONOMY_AGENT_NAME=pop-os-native
 Environment=AUTONOMY_ENRICH=true
 Environment=AUTONOMY_DISCORD=true
 Environment=AUTONOMY_EXCLUDE_UFW_BLOCKS=true
+Environment=AUTONOMY_INCLUDE_AUTH=true
+Environment=AUTONOMY_AUTH_MIN_LEVEL=5
+Environment=AUTONOMY_FEEDBACK_SKIP=true
+Environment=AUTONOMY_AUTO_CLOSE_NOISE=true
 # Cursor cloud propose-only investigation (Mac-offline). Keep false until
 # CURSOR_API_KEY + CURSOR_AGENT_REPO are set in .env and `[cursor]` extra is installed.
 # Environment=AUTONOMY_CURSOR_AGENT=false

@@ -10,6 +10,8 @@ from agentic_soc.triage import (
     RULE_PORT_SCAN_LAB,
     RULE_PORT_SCAN_MULTI,
     RULE_UFW_BLOCK,
+    is_auto_close_noise,
+    is_successful_sudo,
     score_alert,
     should_open_case,
 )
@@ -168,6 +170,66 @@ def test_cis_noise_skipped():
     assert should_open_case(alert, j)["open"] is False
 
 
+def test_successful_sudo_skipped():
+    alert = _alert(
+        rule_id="5402",
+        rule_level=3,
+        description="Successful sudo to ROOT executed.",
+        full_log="sudo: admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/apt",
+        groups=["syslog", "sudo"],
+    )
+    assert is_successful_sudo(alert) is True
+    j = score_alert(alert)
+    assert j["disposition"] == "informational"
+    assert should_open_case(alert, j)["open"] is False
+
+
+def test_sudoers_denied_opens():
+    alert = _alert(
+        rule_id="5403",
+        rule_level=5,
+        description="Attempt to run sudo by unauthorized user.",
+        full_log="sudo: guest : user NOT in sudoers ; TTY=pts/1 ; USER=root ; COMMAND=/bin/bash",
+        groups=["syslog", "sudo"],
+    )
+    assert is_successful_sudo(alert) is False
+    j = score_alert(alert)
+    assert j["disposition"] == "suspicious"
+    assert should_open_case(alert, j)["open"] is True
+    assert is_auto_close_noise(alert, j)["close"] is False
+
+
+def test_high_level_compliance_is_auto_close_noise():
+    alert = _alert(
+        rule_id="19008",
+        rule_level=12,
+        description="CIS: Ensure SSH Root Login is Disabled",
+        groups=["cis", "sca"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] in ("informational", "false_positive")
+    assert should_open_case(alert, j)["open"] is True
+    noise = is_auto_close_noise(alert, j)
+    assert noise["close"] is True
+
+
+def test_malicious_enrichment_blocks_auto_close():
+    alert = _alert(
+        rule_id="19008",
+        rule_level=12,
+        description="CIS: Ensure SSH Root Login is Disabled",
+        groups=["cis", "sca"],
+    )
+    j = score_alert(alert)
+    noise = is_auto_close_noise(
+        alert,
+        j,
+        enrichments=[{"ioc": "1.2.3.4", "malicious": 3}],
+    )
+    assert noise["close"] is False
+    assert noise["reason"] == "enrichment_malicious"
+
+
 def test_labeled_fixture_thresholds():
     spec = importlib.util.spec_from_file_location(
         "eval_triage",
@@ -184,4 +246,4 @@ def test_labeled_fixture_thresholds():
 
 def test_labeled_json_loadable():
     data = json.loads(_FIXTURES.read_text())
-    assert 10 <= len(data["alerts"]) <= 25
+    assert 10 <= len(data["alerts"]) <= 40

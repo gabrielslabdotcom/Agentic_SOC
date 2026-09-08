@@ -118,3 +118,41 @@ def test_null_alert_ids_can_repeat(tmp_path: Path) -> None:
     a = store.open_case(title="manual a")
     b = store.open_case(title="manual b")
     assert a["id"] != b["id"]
+
+
+def test_reject_same_rule_and_source_skips(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    case = store.open_case(
+        title="auth noise",
+        alert_id="alert-auth-1",
+        rule_id="5710",
+        source_ip="203.0.113.50",
+    )
+    store.resolve_proposal(case["id"], approved=False, note="lab hydra replay")
+    skip = store.rejected_similar(rule_id="5710", source_ip="203.0.113.50")
+    assert skip["skip"] is True
+    assert skip["count"] >= 1
+    other_ip = store.rejected_similar(rule_id="5710", source_ip="198.51.100.1")
+    assert other_ip["skip"] is False
+    other_rule = store.rejected_similar(rule_id="100102", source_ip="203.0.113.50")
+    assert other_rule["skip"] is False
+    missing = store.rejected_similar(rule_id="5710", source_ip=None)
+    assert missing["skip"] is False
+
+
+def test_auto_close_noise_records_skip_feedback(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    case = store.open_case(
+        title="CIS noise",
+        alert_id="cis-1",
+        rule_id="19008",
+        source_ip="192.168.50.254",
+        recommended_action="close_as_benign_lab_noise",
+    )
+    closed = store.auto_close_noise(case["id"], note="heuristic_noise: informational")
+    assert closed["status"] == "auto_closed"
+    notes = " ".join(n["note"] for n in closed.get("notes") or [])
+    assert "auto_closed_noise" in notes
+    assert "containment=not_executed" in notes
+    skip = store.rejected_similar(rule_id="19008", source_ip="192.168.50.254")
+    assert skip["skip"] is True

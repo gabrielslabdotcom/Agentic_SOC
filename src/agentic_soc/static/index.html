@@ -272,6 +272,7 @@
 
     .badge.status-open, .badge.status-pending { border-color: var(--info); color: #9bb8f0; }
     .badge.status-approved { border-color: var(--accent); color: #8fd4b0; }
+    .badge.status-auto_closed { border-color: #7a8aa0; color: #b8c4d6; }
     .badge.status-rejected { border-color: var(--danger); color: #e0a0a0; }
 
     .badge.sev-critical, .badge.sev-high { border-color: var(--danger); color: #f0a8a8; }
@@ -339,8 +340,18 @@
       list-style: none;
     }
 
+    .investigation-panel .prose {
+      max-height: 360px;
+      border-color: rgba(91, 141, 239, 0.45);
+    }
+
+    .investigation-empty {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
     .notes { margin: 0; padding: 0; }
-    .notes .who {
+    .notes .who, .investigation-panel .who {
       font-family: var(--mono);
       font-size: 0.75rem;
       color: var(--muted);
@@ -410,8 +421,10 @@
     <div class="lab-banner" id="lab-banner">
       Lab mode: <strong>Approve</strong> and <strong>Reject</strong> only record the
       analyst decision (case status + note). Containment is never executed from this UI.
-      Live autonomy on Pop uses min-level 8 (auth failures at Wazuh level 5 stay
-      eval-only until Phase C).
+      Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
+      are OR'd in without lowering that floor. A reject on the same rule_id +
+      source IP skips repeats. Informational / false-positive cases may
+      auto-close without Discord. Containment stays off.
     </div>
     <div class="instance-banner mac-local" id="instance-banner">
       Identifying cases database…
@@ -426,6 +439,7 @@
               <option value="">All</option>
               <option value="open">Open / pending</option>
               <option value="approved">Approved</option>
+              <option value="auto_closed">Auto-closed noise</option>
               <option value="rejected">Rejected</option>
             </select>
             <label class="refresh-toggle">
@@ -654,38 +668,41 @@
         }
 
         const notes = (c.notes || []).slice().reverse();
-        const notesHtml = notes.length
-          ? `<ul class="notes">${notes.map((n) => `
+        const invNotes = notes.filter((n) => {
+          const a = (n.author || "").toLowerCase();
+          const t = n.note || "";
+          return a === "cursor_cloud_agent" || t.indexOf("[cursor_investigation]") === 0;
+        });
+        const otherNotes = notes.filter((n) => invNotes.indexOf(n) < 0);
+        let investigationBlock;
+        if (invNotes.length) {
+          investigationBlock = `
+            <div class="section investigation-panel">
+              <h3>Cursor investigation</h3>
+              <p class="status-line">Copied from the cloud agent final reply onto this case. Still propose-only.</p>
+              ${invNotes.map((n) => `
+                <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
+                <div class="prose">${escapeHtml(n.note || "")}</div>
+              `).join("")}
+            </div>`;
+        } else if ((c.status || "") === "auto_closed") {
+          investigationBlock = "";
+        } else {
+          investigationBlock = `
+            <div class="section investigation-panel">
+              <h3>Cursor investigation</h3>
+              <p class="investigation-empty">No investigation note yet. The cloud agent may still be running, or the hook was skipped. Refresh this case in a minute.</p>
+            </div>`;
+        }
+        const notesHtml = otherNotes.length
+          ? `<ul class="notes">${otherNotes.map((n) => `
               <li>
                 <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
                 <div class="prose" style="max-height:120px">${escapeHtml(n.note || "")}</div>
               </li>`).join("")}</ul>`
-          : `<p class="status-line">No notes yet.</p>`;
-
-        $("detail").className = "detail";
-        $("detail").innerHTML = `
-          <h2 class="detail-title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</h2>
-          <div style="margin-bottom:0.75rem">
-            ${badge(statusClass(c.status), c.status)}
-            ${badge(sevClass(c.severity), c.severity)}
-            ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
-          </div>
-          <dl class="kv">
-            <dt>Agent</dt><dd>${escapeHtml(c.agent_name || "—")}</dd>
-            <dt>Alert ID</dt><dd>${escapeHtml(c.alert_id || "—")}</dd>
-            <dt>Created</dt><dd>${escapeHtml(c.created_at || "—")}</dd>
-            <dt>Updated</dt><dd>${escapeHtml(c.updated_at || "—")}</dd>
-          </dl>
-          <div class="section">
-            <h3>Summary</h3>
-            <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
-          </div>
-          <div class="section">
-            <h3>Recommended action</h3>
-            <div class="prose">${escapeHtml(c.recommended_action || "(none)")}</div>
-          </div>
-          ${relatedBlock}
-          ${alertBlock}
+          : `<p class="status-line">No other notes.</p>`;
+        const pendingHitl = (c.status || "open") === "open";
+        const decisionBlock = pendingHitl ? `
           <div class="section">
             <h3>Analyst decision</h3>
             <div class="decision-legend">
@@ -716,7 +733,41 @@
             <p class="status-line" style="margin-top:0.5rem">
               Same path as <code>approve_case.py</code> — writes status + an audit note only.
             </p>
+          </div>` : `
+          <div class="section">
+            <h3>Analyst decision</h3>
+            <p class="status-line">
+              This case is already <code>${escapeHtml(c.status || "")}</code>.
+              Approve / Reject applies to open cases only. Containment was never executed.
+            </p>
+          </div>`;
+
+        $("detail").className = "detail";
+        $("detail").innerHTML = `
+          <h2 class="detail-title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</h2>
+          <div style="margin-bottom:0.75rem">
+            ${badge(statusClass(c.status), c.status)}
+            ${badge(sevClass(c.severity), c.severity)}
+            ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
           </div>
+          <dl class="kv">
+            <dt>Agent</dt><dd>${escapeHtml(c.agent_name || "—")}</dd>
+            <dt>Alert ID</dt><dd>${escapeHtml(c.alert_id || "—")}</dd>
+            <dt>Created</dt><dd>${escapeHtml(c.created_at || "—")}</dd>
+            <dt>Updated</dt><dd>${escapeHtml(c.updated_at || "—")}</dd>
+          </dl>
+          <div class="section">
+            <h3>Summary</h3>
+            <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
+          </div>
+          <div class="section">
+            <h3>Recommended action</h3>
+            <div class="prose">${escapeHtml(c.recommended_action || "(none)")}</div>
+          </div>
+          ${relatedBlock}
+          ${alertBlock}
+          ${investigationBlock}
+          ${decisionBlock}
           <div class="section">
             <h3>Enrich IOC</h3>
             <div class="enrich-row">
@@ -731,8 +782,10 @@
           </div>
         `;
 
-        $("btn-approve").onclick = () => decide(caseId, true);
-        $("btn-reject").onclick = () => decide(caseId, false);
+        const approveBtn = $("btn-approve");
+        const rejectBtn = $("btn-reject");
+        if (approveBtn) approveBtn.onclick = () => decide(caseId, true);
+        if (rejectBtn) rejectBtn.onclick = () => decide(caseId, false);
         $("btn-enrich").onclick = () => enrichIoc();
         $("detail").querySelectorAll("[data-related-id]").forEach((btn) => {
           btn.addEventListener("click", () => {
