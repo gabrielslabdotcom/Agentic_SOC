@@ -7,6 +7,49 @@ import httpx
 from agentic_soc.config import Settings, get_settings
 
 
+def build_alerts_search_body(
+    *,
+    limit: int = 50,
+    min_level: int = 0,
+    agent_name: Optional[str] = None,
+    query_string: Optional[str] = None,
+    exclude_rule_ids: Optional[list[str]] = None,
+    since: Optional[str] = None,
+) -> dict[str, Any]:
+    """OpenSearch body for wazuh-alerts-*.
+
+    With ``since``, sort oldest-first so a truncated burst continues on the next
+    poll instead of skipping older alerts in the window.
+    """
+    must: list[dict[str, Any]] = []
+    must_not: list[dict[str, Any]] = []
+    if min_level > 0:
+        must.append({"range": {"rule.level": {"gte": min_level}}})
+    if agent_name:
+        must.append({"match": {"agent.name": agent_name}})
+    if query_string:
+        must.append({"query_string": {"query": query_string}})
+    since_ts = (since or "").strip()
+    if since_ts:
+        must.append({"range": {"@timestamp": {"gt": since_ts}}})
+    if exclude_rule_ids:
+        ids = [str(x) for x in exclude_rule_ids if str(x).strip()]
+        if ids:
+            must_not.append({"terms": {"rule.id": ids}})
+
+    bool_q: dict[str, Any] = {}
+    if must:
+        bool_q["must"] = must
+    if must_not:
+        bool_q["must_not"] = must_not
+    order = "asc" if since_ts else "desc"
+    return {
+        "size": min(limit, 500),
+        "sort": [{"@timestamp": {"order": order}}],
+        "query": {"bool": bool_q} if bool_q else {"match_all": {}},
+    }
+
+
 class WazuhClient:
     """Thin client for Wazuh manager API + indexer (OpenSearch)."""
 
@@ -73,30 +116,16 @@ class WazuhClient:
         agent_name: Optional[str] = None,
         query_string: Optional[str] = None,
         exclude_rule_ids: Optional[list[str]] = None,
+        since: Optional[str] = None,
     ) -> dict[str, Any]:
-        must: list[dict[str, Any]] = []
-        must_not: list[dict[str, Any]] = []
-        if min_level > 0:
-            must.append({"range": {"rule.level": {"gte": min_level}}})
-        if agent_name:
-            must.append({"match": {"agent.name": agent_name}})
-        if query_string:
-            must.append({"query_string": {"query": query_string}})
-        if exclude_rule_ids:
-            ids = [str(x) for x in exclude_rule_ids if str(x).strip()]
-            if ids:
-                must_not.append({"terms": {"rule.id": ids}})
-
-        bool_q: dict[str, Any] = {}
-        if must:
-            bool_q["must"] = must
-        if must_not:
-            bool_q["must_not"] = must_not
-        body: dict[str, Any] = {
-            "size": min(limit, 500),
-            "sort": [{"@timestamp": {"order": "desc"}}],
-            "query": {"bool": bool_q} if bool_q else {"match_all": {}},
-        }
+        body = build_alerts_search_body(
+            limit=limit,
+            min_level=min_level,
+            agent_name=agent_name,
+            query_string=query_string,
+            exclude_rule_ids=exclude_rule_ids,
+            since=since,
+        )
 
         url = f"{self.settings.wazuh_indexer_url.rstrip('/')}/wazuh-alerts-*/_search"
         async with httpx.AsyncClient(

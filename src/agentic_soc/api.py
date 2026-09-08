@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from agentic_soc.config import hostname
 from agentic_soc.tools import get_tools
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -81,17 +83,34 @@ def ui_config() -> dict[str, Any]:
     """Non-secret UI hints for the analyst dashboard."""
     tools = get_tools()
     settings = tools.settings
+    instance = settings.resolve_instance()
+    live = instance == "pop-live"
+    min_level = os.environ.get("AUTONOMY_MIN_LEVEL", "8")
+    if live:
+        note = (
+            "LIVE Pop cases (Discord / autonomy DB). Approve / Reject record status + note only. "
+            "Containment is never executed. Live loop uses AUTONOMY_MIN_LEVEL "
+            f"(default {min_level}); auth failures at Wazuh level 5 are eval-covered but "
+            "not fetched until Phase C."
+        )
+        banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
+    else:
+        note = (
+            "Mac local copy of cases.sqlite — this is NOT the Discord / autonomy DB on Pop. "
+            "Open live cases with ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/"
+        )
+        banner = "Mac local copy — not Discord / Pop autonomy cases. Tunnel live UI on port 8081."
     return {
         "app_name": "Agentic SOC Analyst",
+        "instance": instance,
+        "hostname": hostname(),
         "wazuh_dashboard_url": settings.wazuh_dashboard_url,
         "cases_db_path": str(settings.cases_path),
         "lab_mode": True,
         "containment_enabled": False,
-        "note": (
-            "Cases DB is local to this API process. Pop autonomy/Discord cases live in "
-            "/home/admin/Agentic_SOC/data/cases.sqlite (tunnel: ssh -L 8080:127.0.0.1:8080 soc). "
-            "The Mac copy is a separate file."
-        ),
+        "autonomy_min_level": min_level,
+        "banner": banner,
+        "note": note,
     }
 
 

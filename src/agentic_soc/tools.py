@@ -45,6 +45,7 @@ class SocTools:
         agent_name: Optional[str] = None,
         query_string: Optional[str] = None,
         exclude_rule_ids: Optional[list[str]] = None,
+        since: Optional[str] = None,
     ) -> dict[str, Any]:
         return await self.wazuh.list_alerts(
             limit=limit,
@@ -52,6 +53,7 @@ class SocTools:
             agent_name=agent_name,
             query_string=query_string,
             exclude_rule_ids=exclude_rule_ids,
+            since=since,
         )
 
     async def get_alert(self, alert_id: str) -> dict[str, Any]:

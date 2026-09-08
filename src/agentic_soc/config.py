@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import socket
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,12 +50,32 @@ class Settings(BaseSettings):
     # Optional self-hosted pool name (CloudAgentOptions.env type=pool)
     cursor_cloud_pool: str = ""
 
+    # Analyst UI instance: pop-live | mac-local | empty (auto-detect from cases path)
+    agentic_soc_instance: str = ""
+
     @property
     def cases_path(self) -> Path:
         path = Path(self.cases_db_path)
         if not path.is_absolute():
             return _REPO_ROOT / path
         return path
+
+    def resolve_instance(self) -> str:
+        """Return pop-live or mac-local for the analyst dashboard banner."""
+        explicit = (self.agentic_soc_instance or os.environ.get("AGENTIC_SOC_INSTANCE") or "").strip().lower()
+        if explicit in {"pop-live", "mac-local"}:
+            return explicit
+        path = str(self.cases_path)
+        if path.startswith("/home/admin/Agentic_SOC") or "/home/admin/Agentic_SOC/" in path:
+            return "pop-live"
+        return "mac-local"
+
+
+def hostname() -> str:
+    try:
+        return socket.gethostname()
+    except OSError:
+        return "unknown"
 
 
 def get_settings() -> Settings:

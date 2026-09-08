@@ -94,7 +94,28 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     assert data["app_name"] == "Agentic SOC Analyst"
     assert data["wazuh_dashboard_url"] == "https://example.test"
     assert data["containment_enabled"] is False
+    assert data["instance"] in ("mac-local", "pop-live")
+    assert "banner" in data
+    assert data["lab_mode"] is True
 
     dash = client.get("/dashboard/", follow_redirects=True)
     assert dash.status_code == 200
     assert "Agentic SOC Analyst" in dash.text
+    assert "instance-banner" in dash.text
+    assert "min-level 8" in dash.text
+
+
+def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = tmp_path / "cases.sqlite"
+    settings = Settings(
+        cases_db_path=str(db),
+        wazuh_dashboard_url="https://example.test",
+        agentic_soc_instance="pop-live",
+    )
+    tools = SocTools(settings=settings)
+    monkeypatch.setattr(api_mod, "get_tools", lambda: tools)
+    client = TestClient(api_mod.app)
+    data = client.get("/tools/ui_config").json()
+    assert data["instance"] == "pop-live"
+    assert "LIVE Pop" in data["banner"]
+    assert data["containment_enabled"] is False

@@ -101,3 +101,20 @@ def test_find_related_api(tmp_path: Path, monkeypatch) -> None:
     ids = [c["id"] for c in related.json()["related_cases"]]
     assert c2["id"] in ids
     assert c1["id"] not in ids
+
+
+def test_unique_alert_id_returns_existing(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    first = store.open_case(title="one", alert_id="alert-dup")
+    second = store.open_case(title="two", alert_id="alert-dup")
+    assert first["id"] == second["id"]
+    assert second.get("duplicate") is True
+    listed = store.list_cases(limit=10)
+    assert listed["count"] == 1
+
+
+def test_null_alert_ids_can_repeat(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    a = store.open_case(title="manual a")
+    b = store.open_case(title="manual b")
+    assert a["id"] != b["id"]

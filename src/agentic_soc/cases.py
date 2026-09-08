@@ -87,6 +87,49 @@ class CaseStore:
                     ON entity_links(alert_id);
                 """
             )
+            self._ensure_unique_alert_id(conn)
+
+    @staticmethod
+    def _ensure_unique_alert_id(conn: sqlite3.Connection) -> None:
+        """Partial unique index on alert_id (NULLs allowed). Dedup existing rows first."""
+        conn.execute(
+            "UPDATE cases SET alert_id = NULL WHERE alert_id IS NOT NULL AND trim(alert_id) = ''"
+        )
+        dup_ids = [
+            int(r[0])
+            for r in conn.execute(
+                """
+                SELECT c.id FROM cases c
+                WHERE c.alert_id IS NOT NULL
+                  AND c.id NOT IN (
+                    SELECT MIN(id) FROM cases
+                    WHERE alert_id IS NOT NULL
+                    GROUP BY alert_id
+                  )
+                """
+            ).fetchall()
+        ]
+        if dup_ids:
+            placeholders = ",".join("?" * len(dup_ids))
+            conn.execute(
+                f"DELETE FROM case_notes WHERE case_id IN ({placeholders})",
+                dup_ids,
+            )
+            conn.execute(
+                f"DELETE FROM entity_links WHERE case_id IN ({placeholders})",
+                dup_ids,
+            )
+            conn.execute(
+                f"DELETE FROM cases WHERE id IN ({placeholders})",
+                dup_ids,
+            )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cases_alert_id_unique
+            ON cases(alert_id)
+            WHERE alert_id IS NOT NULL
+            """
+        )
 
     @staticmethod
     def _now() -> str:
@@ -103,17 +146,32 @@ class CaseStore:
         recommended_action: str = "",
     ) -> dict[str, Any]:
         now = self._now()
+        aid = (alert_id or "").strip() or None
         with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO cases (
-                    title, status, severity, alert_id, agent_name,
-                    summary, recommended_action, created_at, updated_at
-                ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (title, severity, alert_id, agent_name, summary, recommended_action, now, now),
-            )
-            case_id = cur.lastrowid
+            try:
+                cur = conn.execute(
+                    """
+                    INSERT INTO cases (
+                        title, status, severity, alert_id, agent_name,
+                        summary, recommended_action, created_at, updated_at
+                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (title, severity, aid, agent_name, summary, recommended_action, now, now),
+                )
+                case_id = cur.lastrowid
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                if not aid:
+                    raise
+                row = conn.execute(
+                    "SELECT id FROM cases WHERE alert_id = ?",
+                    (aid,),
+                ).fetchone()
+                if not row:
+                    raise
+                existing = self.get_case(int(row["id"]))
+                existing["duplicate"] = True
+                return existing
         return self.get_case(case_id)
 
     def update_case(

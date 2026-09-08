@@ -19,7 +19,7 @@ Lab reference: a **Pop!_OS laptop** runs Wazuh, autonomy, Discord notifies, Curs
 | Wazuh dashboard | https://192.168.50.254 |
 | Manager API | https://192.168.50.254:55000 |
 | Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | `127.0.0.1:8080` on Pop — open from the Mac via SSH tunnel (§12.4) |
+| Analyst UI (Pop cases) | `127.0.0.1:8080` on Pop — from the Mac use `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ (§12.4) |
 
 ### Current lab status (2026-09)
 
@@ -31,9 +31,10 @@ This lab is already running. Do **not** recreate the Discord webhook or re-boots
 | Discord notifies | Live (`DISCORD_WEBHOOK_URL` is set on Pop) |
 | Autonomy systemd | `agentic-soc-autonomy` — `AUTONOMY_MIN_LEVEL=8`, excludes lone UFW `100100`, `AUTONOMY_CURSOR_AGENT=true` |
 | Cursor cloud hook | Enabled on Pop; repo `https://github.com/gabrielslabdotcom/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
-| Analyst UI for live Discord cases | FastAPI on Pop `127.0.0.1:8080` (`agentic-soc-dashboard`). From the Mac: `ssh -L 8080:127.0.0.1:8080 soc` then http://127.0.0.1:8080/ |
-| Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. |
+| Analyst UI for live Discord cases | FastAPI on Pop `127.0.0.1:8080` (`agentic-soc-dashboard`). From the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ (banner **LIVE Pop cases**). Do not use Mac port 8080 for the tunnel. |
+| Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
 | Approve / Reject | Record-only (status + note). Never containment. Discord embeds and the dashboard glossary say the same thing. |
+| Live vs eval | Eval fixtures include sshd/PAM **level 5** auth failures. Live `AUTONOMY_MIN_LEVEL=8` does **not** fetch those. Lowering min-level is **Phase C**, not a live bug. |
 | Entity correlation | SQLite `entities` + `entity_links` + `find_related`. Neo4j remains deferred. |
 
 **Lab-only default passwords (Wazuh Docker single-node):**
@@ -352,7 +353,7 @@ Two FastAPI + **Agentic SOC Analyst** dashboards can run; they do **not** share 
 
 | Where | Cases DB | How to open |
 |-------|----------|-------------|
-| **Pop (live Discord / autonomy cases)** | `/home/admin/Agentic_SOC/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `127.0.0.1:8080`. From the Mac: `ssh -L 8080:127.0.0.1:8080 soc` then http://127.0.0.1:8080/ |
+| **Pop (live Discord / autonomy cases)** | `/home/admin/Agentic_SOC/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `127.0.0.1:8080`. From the Mac: `./scripts/tunnel_pop_dashboard.sh` then http://127.0.0.1:8081/ |
 | **Mac (local copy)** | this repo’s `data/cases.sqlite` | `uvicorn agentic_soc.api:app --reload --port 8080` on the Mac. Fine to keep running; it is a **different** DB. |
 
 Preferred path for cases Discord opens: **Pop API + SSH tunnel** (no unauthenticated LAN bind). See §12.4.
@@ -446,7 +447,8 @@ python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 4. **Triage eval** — `python scripts/eval_triage.py` against `evals/labeled_alerts.json` (§11.3).
 5. **SQLite entity correlation** is implemented (`entities` / `entity_links` / `find_related` — see §14). Graduate to Neo4j only if multi-hop graph queries, entity volume, or relationship types outgrow SQLite. Those criteria remain deferred.
 6. **AbuseIPDB** — set `ABUSEIPDB_API_KEY` in `.env` when you add that client.
-7. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
+7. Live autonomy stays at **min-level 8**. Auth L5 in the eval set is **Phase C** (do not lower `AUTONOMY_MIN_LEVEL` yet). Cursor note write-back is **Phase B**.
+8. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
 
 ### 8.1 Seeing nmap / port-scan alerts
 
@@ -612,7 +614,7 @@ Unit tests (optional):
 
 ```bash
 pip install pytest
-pytest tests/test_triage.py tests/test_entities.py tests/test_api_cases.py tests/test_cursor_agent.py -q
+pytest tests/ -q
 ```
 
 ### 11.4 Approve or reject a proposed action
@@ -626,12 +628,12 @@ python -c "from agentic_soc.tools import SocTools; import json; print(json.dumps
 **Web dashboard** (preferred for interactive review of **live Discord cases**):
 
 ```bash
-# Mac → Pop tunnel (Pop FastAPI is bound to 127.0.0.1:8080)
-ssh -L 8080:127.0.0.1:8080 soc
-# then open http://127.0.0.1:8080/dashboard/
+# Mac → Pop tunnel (Pop FastAPI is bound to 127.0.0.1:8080; local 8081 avoids Mac uvicorn)
+./scripts/tunnel_pop_dashboard.sh
+# then open http://127.0.0.1:8081/dashboard/
 ```
 
-A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. See §12.4.
+A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use the 8081 tunnel for live cases. See §12.4.
 
 Approve / Reject in the UI calls `POST /tools/approve_case/{id}` (same `resolve_proposal` path as the CLI).
 
@@ -691,20 +693,25 @@ loginctl enable-linger admin
 
 ### 12.3 Day-2 ops
 
-```bash
-# Logs
-ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
+From the Mac:
 
-# State / last cycle
-ssh soc 'cat /home/admin/Agentic_SOC/data/autonomy_state.json | head'
+```bash
+python scripts/lab_status.py
+ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
 ```
 
-**Restart:** `systemctl --user restart` can hang on `SIGTERM` (the loop waits for the current cycle). Prefer:
+**Restart (preferred):** the unit uses `TimeoutStopSec=90` and the loop stops **between alerts** on SIGTERM. After copying a refreshed unit file:
 
 ```bash
-# If restart hangs (TimeoutStopSec=20 may not be enough):
+ssh soc 'cp /home/admin/Agentic_SOC/deploy/agentic-soc-autonomy.service ~/.config/systemd/user/ && systemctl --user daemon-reload'
+ssh soc 'systemctl --user restart agentic-soc-autonomy.service'
+```
+
+**Last resort** if restart still hangs past ~90s:
+
+```bash
 ssh soc 'systemctl --user kill -s SIGKILL agentic-soc-autonomy.service; systemctl --user start agentic-soc-autonomy.service'
-# Same pattern for the dashboard unit if uvicorn does not die.
+# Same pattern for the dashboard unit if uvicorn does not die (TimeoutStopSec=30).
 ```
 
 Clean stop (when it actually exits):
@@ -717,15 +724,15 @@ When Discord fires: review the embed, then **Approve / Reject** from the Pop das
 
 ### 12.4 Analyst dashboard on Pop (live cases)
 
-The dashboard service binds **127.0.0.1:8080** only (unauthenticated lab API — do not expose on the LAN).
+The dashboard service binds **127.0.0.1:8080** only (unauthenticated lab API — do not expose on the LAN). Prefer local port **8081** on the Mac so a local uvicorn on 8080 cannot shadow live cases. The UI banner reads **LIVE Pop cases** vs **Mac local copy**.
 
 ```bash
-# From the Mac — preferred
-ssh -L 8080:127.0.0.1:8080 soc
-# Browser: http://127.0.0.1:8080/  or  http://127.0.0.1:8080/dashboard/
+# From the Mac — preferred (leaves 8080 free)
+./scripts/tunnel_pop_dashboard.sh
+# Browser: http://127.0.0.1:8081/  or  http://127.0.0.1:8081/dashboard/
 ```
 
-If the Mac already has a local uvicorn on 8080, that process serves the **Mac** DB. Use another local port for the tunnel when you want Pop cases, e.g. `ssh -L 8081:127.0.0.1:8080 soc` → http://127.0.0.1:8081/
+Equivalent: `ssh -N -L 8081:127.0.0.1:8080 soc`.
 
 Install / refresh the user unit (does **not** touch `.env`):
 
@@ -735,7 +742,7 @@ mkdir -p ~/.config/systemd/user
 cp /home/admin/Agentic_SOC/deploy/agentic-soc-dashboard.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now agentic-soc-dashboard.service
-# if enable/restart hangs: kill then start
+# if enable/restart hangs past TimeoutStopSec=30: kill then start
 systemctl --user kill -s SIGKILL agentic-soc-dashboard.service
 systemctl --user start agentic-soc-dashboard.service
 systemctl --user status agentic-soc-dashboard.service

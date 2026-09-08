@@ -41,6 +41,18 @@ LOG = logging.getLogger("autonomy_loop")
 _STOP = asyncio.Event()
 
 
+def stop_requested() -> bool:
+    """True after SIGTERM/SIGINT — checked between alerts so a cycle can exit early."""
+    return _STOP.is_set()
+
+
+def max_alert_timestamp(alerts: list[dict[str, Any]]) -> str | None:
+    """Latest ISO-ish timestamp in a batch (lexicographic max of non-empty strings)."""
+    stamps = [str(a.get("timestamp") or "").strip() for a in alerts]
+    stamps = [s for s in stamps if s]
+    return max(stamps) if stamps else None
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Agentic SOC autonomous triage loop")
     p.add_argument("--interval", type=int, default=int(os.environ.get("AUTONOMY_INTERVAL", "120")))
@@ -144,11 +156,13 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
 
     try:
         exclude = [RULE_UFW_BLOCK] if args.exclude_ufw_blocks else None
+        since = (state.get("last_seen_timestamp") or "").strip() or None
         alerts_resp = await tools.list_alerts(
             limit=args.limit,
             min_level=args.min_level,
             agent_name=args.agent_name or None,
             exclude_rule_ids=exclude,
+            since=since,
         )
     except Exception as exc:  # noqa: BLE001
         LOG.exception("Failed to fetch alerts: %s", exc)
@@ -157,17 +171,24 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
 
     alerts = alerts_resp.get("alerts") or []
     report["alerts_fetched"] = len(alerts)
+    report["since"] = since
     LOG.info(
-        "cycle: fetched=%s total≈%s min_level=%s agent=%s exclude_ufw=%s",
+        "cycle: fetched=%s total≈%s min_level=%s agent=%s exclude_ufw=%s since=%s",
         len(alerts),
         alerts_resp.get("total"),
         args.min_level,
         args.agent_name,
         bool(args.exclude_ufw_blocks),
+        since,
     )
 
     opened = 0
+    batch_complete = True
     for alert in alerts:
+        if stop_requested():
+            batch_complete = False
+            LOG.info("stop requested — leaving remaining alerts for the next start")
+            break
         alert_id = str(alert.get("id") or "")
         if alert_id and alert_id in seen:
             report["skipped"] += 1
@@ -202,6 +223,12 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             severity=judgment["severity"],
             recommended_action=judgment["recommended_action"],
         )
+        if case.get("duplicate"):
+            LOG.info("duplicate alert_id=%s already case #%s — skip notify", alert_id, case.get("id"))
+            report["skipped"] += 1
+            if alert_id:
+                known_cases.add(alert_id)
+            continue
         tools.update_case(
             case["id"],
             disposition=judgment["disposition"],
@@ -318,18 +345,28 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
     state["seen_alert_ids"] = list(seen)
     state["cycles"] = int(state.get("cycles") or 0) + 1
     state["cases_opened_total"] = int(state.get("cases_opened_total") or 0) + opened
+    # Only advance the cursor after a full batch so SIGTERM cannot skip unprocessed alerts.
+    if batch_complete:
+        newest = max_alert_timestamp(alerts)
+        if newest:
+            prev = (state.get("last_seen_timestamp") or "").strip()
+            state["last_seen_timestamp"] = max(prev, newest) if prev else newest
     state["last_cycle"] = {
         "ts": report["ts"],
         "alerts_fetched": report["alerts_fetched"],
         "opened": opened,
         "skipped": report["skipped"],
+        "since": since,
+        "last_seen_timestamp": state.get("last_seen_timestamp"),
+        "truncated": bool(since) and len(alerts) >= args.limit,
+        "batch_complete": batch_complete,
     }
     return report
 
 
 def _install_signal_handlers() -> None:
     def _handler(signum: int, _frame: Any) -> None:
-        LOG.info("received signal %s — stopping after current cycle", signum)
+        LOG.info("received signal %s — stopping after the current alert", signum)
         _STOP.set()
 
     signal.signal(signal.SIGINT, _handler)

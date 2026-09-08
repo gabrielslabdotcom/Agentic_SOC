@@ -25,7 +25,9 @@ ExecStart=/home/admin/Agentic_SOC/.venv/bin/python /home/admin/Agentic_SOC/scrip
 Restart=on-failure
 RestartSec=15
 Nice=10
-TimeoutStopSec=20
+# Allow the current alert (indexer ~30s + VT) to finish on SIGTERM.
+# autonomy_loop checks the stop flag between alerts. SIGKILL remains fallback.
+TimeoutStopSec=90
 KillMode=mixed
 KillSignal=SIGTERM
 

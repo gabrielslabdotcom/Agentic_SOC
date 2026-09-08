@@ -15,7 +15,7 @@ Pop!_OS laptop (192.168.50.254)
 
 This Mac (Cursor / agent plane)
   └── Agentic_SOC               (MCP, local cases.sqlite — a separate copy)
-      ssh -L 8080:127.0.0.1:8080 soc   → view Pop / Discord cases
+      ssh -L 8081:127.0.0.1:8080 soc   → view Pop / Discord cases (or ./scripts/tunnel_pop_dashboard.sh)
 ```
 
 ## Lab endpoints (laptop)
@@ -25,7 +25,7 @@ This Mac (Cursor / agent plane)
 | Wazuh dashboard | https://192.168.50.254 |
 | Manager API | https://192.168.50.254:55000 |
 | Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | `ssh -L 8080:127.0.0.1:8080 soc` → http://127.0.0.1:8080/ |
+| Analyst UI (Pop cases) | `ssh -L 8081:127.0.0.1:8080 soc` (or `./scripts/tunnel_pop_dashboard.sh`) → http://127.0.0.1:8081/ |
 
 Default **lab-only** credentials (change before any non-lab use):
 
@@ -57,8 +57,8 @@ Analyst dashboard (two DBs — they are not synced):
 
 | Cases you want | How |
 |----------------|-----|
-| **Live Discord / autonomy cases on Pop** | `ssh -L 8080:127.0.0.1:8080 soc` then http://127.0.0.1:8080/ (Pop `agentic-soc-dashboard` on `127.0.0.1:8080`, DB `/home/admin/Agentic_SOC/data/cases.sqlite`) |
-| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` |
+| **Live Discord / autonomy cases on Pop** | `./scripts/tunnel_pop_dashboard.sh` then http://127.0.0.1:8081/ (banner: **LIVE Pop cases**). Pop FastAPI is `127.0.0.1:8080`; tunnel uses **8081** so a Mac uvicorn on 8080 cannot shadow it. |
+| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**) |
 
 ```bash
 # Mac-local API only (not the Discord/autonomy DB)
@@ -124,19 +124,25 @@ python scripts/approve_case.py --case-id 1 --approve --note "looks like lab scan
 python scripts/approve_case.py --case-id 1 --reject --note "noise"
 ```
 
-Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/test_triage.py tests/test_api_cases.py tests/test_entities.py tests/test_cursor_agent.py`.
+Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/ -q`.
 
 ## Discord + Pop!_OS autonomy (already live)
 
 Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval (record-only Approve / Reject).
 
+Auth failures at Wazuh **level 5** are covered by the eval harness, but the **live loop does not fetch them** (min-level 8). That is deliberate noise control until Phase C.
+
 ```bash
+# Status from this Mac
+python scripts/lab_status.py
+
 # Logs / one-shot (do not overwrite Pop .env)
 ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
-# If systemctl restart hangs on SIGTERM: kill then start — SETUP_GUIDE §12.3
+# Restart: systemctl --user restart is preferred (TimeoutStopSec=90).
+# SIGKILL only if it still hangs — SETUP_GUIDE §12.3
 ```
 
-Open live cases from the Mac: `ssh -L 8080:127.0.0.1:8080 soc` → http://127.0.0.1:8080/
+Open live cases from the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/
 
 ## Mac-offline LLM (Cursor cloud — already enabled)
 
@@ -149,7 +155,9 @@ ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scrip
 
 ## Next steps
 
-1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings and Approve / Reject via the tunneled dashboard (record-only).
-2. Grow the labeled eval set (`evals/labeled_alerts.json`).
-3. Entity correlation is SQLite (`find_related`). Defer Neo4j until multi-hop / volume / relationship types outgrow it.
-4. Defer SOAR / Security Onion until triage stays reliable. Do not enable Hydra.
+Phase A (HITL ops) is in this repo: instance banners, tunnel on **8081**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
+
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings and Approve / Reject via the **8081** tunneled dashboard (record-only). **No auto-containment.**
+2. **Phase B (later):** close the Cursor investigation loop so notes land on the case — still no containment.
+3. **Phase C (later):** triage quality — grow `evals/labeled_alerts.json`; decide whether live min-level 8 should also ingest auth L5; learn from Approve / Reject. Do **not** lower `AUTONOMY_MIN_LEVEL` until that phase.
+4. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra.

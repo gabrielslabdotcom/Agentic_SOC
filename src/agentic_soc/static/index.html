@@ -85,8 +85,27 @@
       border: 1px solid rgba(201, 162, 39, 0.35);
       color: #e8d48b;
       padding: 0.55rem 0.85rem;
-      margin-bottom: 1.25rem;
+      margin-bottom: 0.65rem;
       font-size: 0.85rem;
+    }
+
+    .instance-banner {
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 550;
+    }
+
+    .instance-banner.pop-live {
+      background: rgba(61, 154, 106, 0.16);
+      border: 1px solid rgba(61, 154, 106, 0.45);
+      color: #8fd4b0;
+    }
+
+    .instance-banner.mac-local {
+      background: rgba(91, 141, 239, 0.14);
+      border: 1px solid rgba(91, 141, 239, 0.4);
+      color: #9bb8f0;
     }
 
     .decision-legend {
@@ -388,9 +407,14 @@
       </div>
     </header>
 
-    <div class="lab-banner">
+    <div class="lab-banner" id="lab-banner">
       Lab mode: <strong>Approve</strong> and <strong>Reject</strong> only record the
       analyst decision (case status + note). Containment is never executed from this UI.
+      Live autonomy on Pop uses min-level 8 (auth failures at Wazuh level 5 stay
+      eval-only until Phase C).
+    </div>
+    <div class="instance-banner mac-local" id="instance-banner">
+      Identifying cases database…
     </div>
 
     <div class="layout">
@@ -487,7 +511,17 @@
     async function loadConfig() {
       try {
         uiConfig = await api("/tools/ui_config");
-        $("cases-path").textContent = "Cases DB: " + (uiConfig.cases_db_path || "?");
+        const host = uiConfig.hostname ? (" · " + uiConfig.hostname) : "";
+        const banner = $("instance-banner");
+        const instance = uiConfig.instance || "mac-local";
+        banner.className = "instance-banner " + instance;
+        banner.textContent = uiConfig.banner || (
+          instance === "pop-live"
+            ? "LIVE Pop cases — Discord / autonomy DB."
+            : "Mac local copy — not Discord / Pop autonomy cases."
+        );
+        $("cases-path").textContent =
+          "Cases DB: " + (uiConfig.cases_db_path || "?") + host;
         const link = $("wazuh-link").querySelector("a");
         if (uiConfig.wazuh_dashboard_url) {
           link.href = uiConfig.wazuh_dashboard_url;

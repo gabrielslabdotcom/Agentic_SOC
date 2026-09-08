@@ -10,14 +10,14 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/admin/Agentic_SOC/src
 EnvironmentFile=-/home/admin/Agentic_SOC/.env
 # Bind localhost only — unauthenticated lab API. Prefer SSH tunnel from the Mac:
-#   ssh -L 8080:127.0.0.1:8080 soc
-# then open http://127.0.0.1:8080/
+#   ./scripts/tunnel_pop_dashboard.sh
+# then open http://127.0.0.1:8081/
 # Do not switch to 0.0.0.0 unless you also lock UFW to a single Mac IP.
 ExecStart=/home/admin/Agentic_SOC/.venv/bin/uvicorn agentic_soc.api:app --host 127.0.0.1 --port 8080
 Restart=on-failure
 RestartSec=15
 Nice=10
-TimeoutStopSec=20
+TimeoutStopSec=30
 KillMode=mixed
 KillSignal=SIGTERM
 
