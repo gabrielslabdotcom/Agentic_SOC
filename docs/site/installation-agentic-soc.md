@@ -38,9 +38,9 @@ Tools wrap `SocTools`: alerts, cases, `propose_action`, `enrich_ioc`, entity `fi
 
 | Cases | How |
 |-------|-----|
-| Live Discord / autonomy (Pop) | `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ |
+| Live Discord / autonomy (Pop) | http://192.168.50.254:8080/ (UFW allowlisted) |
 | Mac local copy | `uvicorn agentic_soc.api:app --reload --port 8080` |
 
-The API has **no auth**. Keep it on localhost. OpenAPI: `/docs` on whichever instance you started.
+The API has **no auth**. Access control is UFW (source IPs only — not the whole LAN). OpenAPI: `/docs` on whichever instance you started. Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/.
 
 Next: [Operations](operations.md).

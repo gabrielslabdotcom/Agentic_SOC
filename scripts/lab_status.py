@@ -86,9 +86,9 @@ def main() -> int:
 
 
 def _hint() -> None:
-    print("Open live UI via tunnel on 8081:")
-    print("  ./scripts/tunnel_pop_dashboard.sh")
-    print("  then http://127.0.0.1:8081/")
+    print("Open live analyst UI: http://192.168.50.254:8080/")
+    print("Mac uvicorn on :8080 is the local fixture DB, not Discord cases.")
+    print("Optional fallback: ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/")
 
 
 if __name__ == "__main__":

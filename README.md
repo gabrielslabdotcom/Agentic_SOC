@@ -13,11 +13,11 @@ Pop!_OS laptop (192.168.50.254)
   ├── Wazuh Docker single-node  (manager :55000, indexer :9200, dashboard :443)
   ├── native wazuh-agent        (host telemetry → manager)
   ├── autonomy systemd          (Discord + Cursor cloud hook → laptop cases.sqlite)
-  └── FastAPI analyst UI        (127.0.0.1:8080 — live Pop cases)
+  └── FastAPI analyst UI        (0.0.0.0:8080, UFW allowlisted — live Pop cases)
 
 This Mac (Cursor / agent plane)
   └── Agentic_SOC               (MCP, local cases.sqlite — a separate copy)
-      ssh -L 8081:127.0.0.1:8080 soc   → view Pop / Discord cases (or ./scripts/tunnel_pop_dashboard.sh)
+      live UI: http://192.168.50.254:8080/   (Mac uvicorn :8080 is the local copy only)
 ```
 
 ## Lab endpoints (laptop)
@@ -27,7 +27,7 @@ This Mac (Cursor / agent plane)
 | Wazuh dashboard | https://192.168.50.254 |
 | Manager API | https://192.168.50.254:55000 |
 | Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | `ssh -L 8081:127.0.0.1:8080 soc` (or `./scripts/tunnel_pop_dashboard.sh`) → http://127.0.0.1:8081/ |
+| Analyst UI (Pop cases) | http://192.168.50.254:8080/ (UFW allowlisted; Mac uvicorn on :8080 is the local copy) |
 
 Default **lab-only** credentials (change before any non-lab use):
 
@@ -59,8 +59,8 @@ Analyst dashboard (two DBs — they are not synced):
 
 | Cases you want | How |
 |----------------|-----|
-| **Live Discord / autonomy cases on Pop** | `./scripts/tunnel_pop_dashboard.sh` then http://127.0.0.1:8081/ (banner: **LIVE Pop cases**). Pop FastAPI is `127.0.0.1:8080`; tunnel uses **8081** so a Mac uvicorn on 8080 cannot shadow it. |
-| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**) |
+| **Live Discord / autonomy cases on Pop** | http://192.168.50.254:8080/ (banner: **LIVE Pop cases**). UFW allows TCP 8080 only from this Mac (and optionally Kali). Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/. |
+| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**). Not Discord cases. |
 
 ```bash
 # Mac-local API only (not the Discord/autonomy DB)
@@ -145,7 +145,7 @@ ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
 # SIGKILL only if it still hangs — SETUP_GUIDE §12.3
 ```
 
-Open live cases from the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/
+Open live cases from the Mac: **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac `uvicorn --port 8080` is the local fixture DB only. Tunnel `8081` is an optional fallback.
 
 ## Mac-offline LLM (Cursor cloud — already enabled)
 
@@ -160,9 +160,9 @@ Build-out including HITL next steps and a constrained cloud path: **[docs/site/r
 
 ## Next steps
 
-Phase A (HITL ops) is in this repo: instance banners, tunnel on **8081**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
+Phase A (HITL ops) is in this repo: instance banners, LAN analyst UI on **http://192.168.50.254:8080/**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
 
-1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject via the **8081** tunneled dashboard (record-only). **No auto-containment.**
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject at **http://192.168.50.254:8080/** (record-only). **No auto-containment.**
 2. **Phase B:** Cursor final reply is stored on the case; dashboard shows **Cursor investigation**; Discord follow-up when it lands.
 3. **Phase C:** live auth L5 via OR query (min-level stays 8); Approve / Reject skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`.
 4. **Phase D:** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor. Suspicious stays HITL.

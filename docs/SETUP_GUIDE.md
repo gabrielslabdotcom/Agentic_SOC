@@ -1,6 +1,6 @@
 # Agentic SOC Lab — Setup Guide
 
-Lab reference: a **Pop!_OS laptop** runs Wazuh, autonomy, Discord notifies, Cursor cloud hook, and the localhost analyst API; a **Mac** runs Cursor MCP and a **separate** local cases DB. Historical install steps remain below; §0 “Current lab status” is what is live.
+Lab reference: a **Pop!_OS laptop** runs Wazuh, autonomy, Discord notifies, Cursor cloud hook, and the LAN analyst API (UFW allowlisted); a **Mac** runs Cursor MCP and a **separate** local cases DB. Historical install steps remain below; §0 “Current lab status” is what is live.
 
 **Lab-only credentials** appear below. Do not reuse them outside this private LAN lab.
 
@@ -21,7 +21,7 @@ Public-safe sectioned pages (no live passwords) for a later write-up: **[docs/si
 | Wazuh dashboard | https://192.168.50.254 |
 | Manager API | https://192.168.50.254:55000 |
 | Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | `127.0.0.1:8080` on Pop — from the Mac use `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ (§12.4) |
+| Analyst UI (Pop cases) | http://192.168.50.254:8080/ (UFW allowlisted; §12.4). Mac uvicorn on `:8080` is the local copy. |
 
 ### Current lab status (2026-09)
 
@@ -33,7 +33,7 @@ This lab is already running. Do **not** recreate the Discord webhook or re-boots
 | Discord notifies | Live (`DISCORD_WEBHOOK_URL` is set on Pop) |
 | Autonomy systemd | `agentic-soc-autonomy` — `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true`, `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, `AUTONOMY_CURSOR_AGENT=true` |
 | Cursor cloud hook | Enabled on Pop; repo `https://github.com/gabrielslabdotcom/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
-| Analyst UI for live Discord cases | FastAPI on Pop `127.0.0.1:8080` (`agentic-soc-dashboard`). From the Mac: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ (banner **LIVE Pop cases**). Do not use Mac port 8080 for the tunnel. |
+| Analyst UI for live Discord cases | FastAPI on Pop `0.0.0.0:8080` (`agentic-soc-dashboard`), UFW TCP 8080 from the Mac (and optionally Kali) only. Live URL **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac uvicorn `:8080` is the local fixture DB. Tunnel `8081` is optional fallback. |
 | Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
 | Approve / Reject | Record-only (status + note). Never containment. Discord embeds and the dashboard glossary say the same thing. |
 | Live vs eval | Live `AUTONOMY_MIN_LEVEL=8` is unchanged. sshd/PAM **level 5** auth failures are OR'd in (`AUTONOMY_INCLUDE_AUTH`). Eval fixtures cover the same auth + sudo/rootkit shapes. |
@@ -338,7 +338,7 @@ Behavior:
 2. Extract IOCs from alert text (skips RFC1918 IPs unless `--include-private-ips`)
 3. Optional VirusTotal `enrich_ioc` (disable with `--no-enrich`)
 4. Heuristic disposition in `src/agentic_soc/triage.py` (`true_positive` / `suspicious` / `false_positive` / `informational`)
-5. Shared `should_open_case()` gate (same logic as `scripts/eval_triage.py`): skips CIS/SCA noise, lone UFW `100100`, and agent queue-full / capacity alerts; opens for auth failures and port-scan aggregates
+5. Shared `should_open_case()` gate (same logic as `scripts/eval_triage.py`): skips CIS/SCA noise, lone UFW `100100`, agent queue-full / capacity alerts, and **self-ingest** (autonomy journal lines re-read as syslog 2501); opens for auth failures and port-scan aggregates
 6. Opens SQLite cases for gated findings, sets disposition, `propose_action` (**never** auto-contains)
 7. Skips duplicate `alert_id`s already in the case store
 
@@ -355,10 +355,10 @@ Two FastAPI + **Agentic SOC Analyst** dashboards can run; they do **not** share 
 
 | Where | Cases DB | How to open |
 |-------|----------|-------------|
-| **Pop (live Discord / autonomy cases)** | `/home/admin/Agentic_SOC/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `127.0.0.1:8080`. From the Mac: `./scripts/tunnel_pop_dashboard.sh` then http://127.0.0.1:8081/ |
+| **Pop (live Discord / autonomy cases)** | `/home/admin/Agentic_SOC/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `0.0.0.0:8080`, UFW allowlisted. From the Mac: **http://192.168.50.254:8080/** |
 | **Mac (local copy)** | this repo’s `data/cases.sqlite` | `uvicorn agentic_soc.api:app --reload --port 8080` on the Mac. Fine to keep running; it is a **different** DB. |
 
-Preferred path for cases Discord opens: **Pop API + SSH tunnel** (no unauthenticated LAN bind). See §12.4.
+Preferred path for cases Discord opens: **Pop API on the LAN** (UFW source-IP allowlist). See §12.4.
 
 ```bash
 # Mac-local dashboard only (this Mac's cases.sqlite — not the Discord/autonomy DB)
@@ -369,8 +369,9 @@ uvicorn agentic_soc.api:app --reload --port 8080
 
 | URL (whichever API you pointed the browser at) | Purpose |
 |-----|---------|
-| http://127.0.0.1:8080/ or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, Approve / Reject, optional IOC enrich |
-| http://127.0.0.1:8080/docs | OpenAPI for tool endpoints |
+| http://192.168.50.254:8080/ (live) or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, Approve / Reject, optional IOC enrich |
+| http://192.168.50.254:8080/docs | OpenAPI for tool endpoints |
+| http://127.0.0.1:8080/ | Mac-local uvicorn only (fixture DB) |
 
 Useful endpoints (same lab-safe semantics as CLI/MCP):
 
@@ -534,6 +535,10 @@ export PYTHONPATH=/Users/admin/Documents/Agentic_SOC/src
 - Re-run with `--json-out data/eval_report.json` and inspect the `failures` list.
 - Tune labels or heuristics, then re-run until disposition + open-case accuracy meet thresholds.
 
+### Discord flood of "syslog: User authentication failure" (rule 2501)
+
+Usually a **feedback loop**: autonomy logs `opened case #N … authentication failure`, Wazuh re-reads the journal, fires 2501 again. Stop autonomy, then deploy the self-ingest skip (`is_self_ingest_noise`). Real sshd/PAM failures still open cases.
+
 ---
 
 ## 10. Day-2 useful commands
@@ -632,12 +637,13 @@ python -c "from agentic_soc.tools import SocTools; import json; print(json.dumps
 **Web dashboard** (preferred for interactive review of **live Discord cases**):
 
 ```bash
-# Mac → Pop tunnel (Pop FastAPI is bound to 127.0.0.1:8080; local 8081 avoids Mac uvicorn)
-./scripts/tunnel_pop_dashboard.sh
-# then open http://127.0.0.1:8081/dashboard/
+# Live Pop cases (same DB Discord / autonomy use)
+open http://192.168.50.254:8080/dashboard/
+# Optional fallback if LAN bind is down:
+# ./scripts/tunnel_pop_dashboard.sh  →  http://127.0.0.1:8081/dashboard/
 ```
 
-A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use the 8081 tunnel for live cases. See §12.4.
+A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use **http://192.168.50.254:8080/** for live cases. See §12.4.
 
 Approve / Reject in the UI calls `POST /tools/approve_case/{id}` (same `resolve_proposal` path as the CLI).
 
@@ -685,7 +691,7 @@ Code lives at `/home/admin/Agentic_SOC`. User units:
 | Unit | Role |
 |------|------|
 | `~/.config/systemd/user/agentic-soc-autonomy.service` | Triage loop + Discord + Cursor cloud |
-| `~/.config/systemd/user/agentic-soc-dashboard.service` | FastAPI analyst UI on `127.0.0.1:8080` (§12.4) |
+| `~/.config/systemd/user/agentic-soc-dashboard.service` | FastAPI analyst UI on `0.0.0.0:8080`, UFW allowlisted (§12.4) |
 
 Autonomy knobs (unit file + `.env`): `AUTONOMY_INTERVAL=120`, **`AUTONOMY_MIN_LEVEL=8`**, `AUTONOMY_INCLUDE_AUTH=true` (OR in sshd/PAM auth at level 5; do **not** lower min-level), `AUTONOMY_FEEDBACK_SKIP=true` (skip same `rule_id`+source IP after a reject), `AUTONOMY_AUTO_CLOSE_NOISE=true` (auto-close informational/FP without Discord; suspicious stays HITL), `AUTONOMY_EXCLUDE_UFW_BLOCKS=true` (skips lone rule `100100`), `AUTONOMY_MAX_CASES`, `AUTONOMY_DISCORD=true`, **`AUTONOMY_CURSOR_AGENT=true`**.
 
@@ -724,19 +730,15 @@ Clean stop (when it actually exits):
 ssh soc 'systemctl --user stop agentic-soc-autonomy.service'
 ```
 
-When Discord fires: review the embed, then **Approve / Reject** from the Pop dashboard (§12.4) or `approve_case.py` against the **Pop** DB (or via the tunneled API). Mac `data/cases.sqlite` is a separate copy.
+When Discord fires: review the embed, then **Approve / Reject** at **http://192.168.50.254:8080/** (§12.4) or `approve_case.py` against the **Pop** DB. Mac `data/cases.sqlite` is a separate copy.
 
 ### 12.4 Analyst dashboard on Pop (live cases)
 
-The dashboard service binds **127.0.0.1:8080** only (unauthenticated lab API — do not expose on the LAN). Prefer local port **8081** on the Mac so a local uvicorn on 8080 cannot shadow live cases. The UI banner reads **LIVE Pop cases** vs **Mac local copy**.
+The dashboard service binds **0.0.0.0:8080**. Access control is **UFW**, not login: TCP 8080 only from the Mac LAN IP (`192.168.50.187` at deploy; confirm with `ifconfig`) and optionally Kali (`192.168.153.148`). Do **not** `ufw allow from 192.168.50.0/24` — that suppresses port-scan BLOCK detections. The API has **no login**. Do not publish 8080 to the whole LAN.
 
-```bash
-# From the Mac — preferred (leaves 8080 free)
-./scripts/tunnel_pop_dashboard.sh
-# Browser: http://127.0.0.1:8081/  or  http://127.0.0.1:8081/dashboard/
-```
+Live URL from the Mac: **http://192.168.50.254:8080/** (or `/dashboard/`). The UI banner reads **LIVE Pop cases** vs **Mac local copy** via `cases_db_path`.
 
-Equivalent: `ssh -N -L 8081:127.0.0.1:8080 soc`.
+Mac `uvicorn --port 8080` is this repo’s fixture DB only — it will not show Discord cases. Optional fallback if the LAN bind is down: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/.
 
 Install / refresh the user unit (does **not** touch `.env`):
 
@@ -752,12 +754,18 @@ systemctl --user start agentic-soc-dashboard.service
 systemctl --user status agentic-soc-dashboard.service
 ```
 
-Optional UFW allow from the Mac LAN IP only if you already have that pattern and accept an unauthenticated API on the LAN. Prefer the SSH tunnel so the API stays on localhost.
+UFW (source IPs only — confirm Mac IP at deploy time):
 
 ```bash
-# Not the default — only if you bind 0.0.0.0 and lock source IP
-# sudo ufw allow from <MAC_LAN_IP> to any port 8080 proto tcp
+sudo ufw allow from 192.168.50.187 to any port 8080 proto tcp comment 'analyst UI Mac'
+# optional: Kali NAT IP
+sudo ufw allow from 192.168.153.148 to any port 8080 proto tcp comment 'analyst UI Kali'
+sudo ufw status numbered | grep 8080
 ```
+
+If `sudo -n` fails, use the same Docker privileged `chroot` pattern as earlier UFW work, or run the commands on the laptop console.
+
+Verify from the Mac: `curl -sS http://192.168.50.254:8080/health`. Banner path should be `/home/admin/Agentic_SOC/data/cases.sqlite`. A non-allowlisted LAN IP should time out / be blocked.
 
 ## 13. Mac-offline LLM: Cursor cloud investigation (propose-only)
 
@@ -804,7 +812,7 @@ Public Cursor cloud VMs **cannot** reach `192.168.50.254` (Wazuh / Pop FastAPI o
 | **B. Tunnel** | Possible if tunnel includes Wazuh ports | Also possible via `AGENTIC_SOC_API_URL` (optional extra) | Want the VM itself to call Pop APIs |
 | **C. Self-hosted pool on Pop** | Yes (worker is on LAN) | Yes — local persist still works; optional `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` | Enterprise self-hosted workers |
 
-**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC`. Pop persists the investigation note locally, then Discord pings “note ready”. Analysts read it on the tunneled dashboard (§12.4) before Approve / Reject. HTTP write-back from the VM is optional, not required.
+**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC`. Pop persists the investigation note locally, then Discord pings “note ready”. Analysts read it at **http://192.168.50.254:8080/** (§12.4) before Approve / Reject. HTTP write-back from the VM is optional, not required.
 
 ### 13.3 Status on Pop (already installed)
 
@@ -833,11 +841,11 @@ If you must refresh the unit file after a code sync, copy + daemon-reload, then 
 
 CLI mirrors: `--cursor-agent` / `--no-cursor-agent`, `--cursor-dry-run`.
 
-### 13.5 FastAPI binding (127.0.0.1 vs LAN)
+### 13.5 FastAPI binding (LAN + UFW allowlist)
 
-The analyst API on Pop is the **systemd user unit** `agentic-soc-dashboard` (see §12.4): `uvicorn` on **127.0.0.1:8080**. That is the default. Do not bind `0.0.0.0` unless you also lock UFW to a single Mac IP — the API has **no auth**.
+The analyst API on Pop is the **systemd user unit** `agentic-soc-dashboard` (see §12.4): `uvicorn` on **0.0.0.0:8080**. Access control is UFW (Mac `192.168.50.187`, optionally Kali `192.168.153.148`) — the API has **no auth**. Do not allow the whole `192.168.50.0/24` subnet.
 
-For a self-hosted pool worker on Pop, `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` is enough (worker is local). Analysts on the Mac use the SSH tunnel, not a LAN bind.
+For a self-hosted pool worker on Pop, `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` is enough (worker is local). Analysts on the Mac use **http://192.168.50.254:8080/**. `./scripts/tunnel_pop_dashboard.sh` (local **8081**) is optional fallback.
 
 ### 13.6 Security notes
 

@@ -38,7 +38,7 @@ Not:  autonomy on a public PaaS next to the blog (it must sit by the indexer)
 **Reasonable sequence:**
 
 1. Publish this instruction set on [gabrielslab.com Write-ups](https://gabrielslab.com/write-ups) (placeholders only — no lab passwords).
-2. Optional small VPS for a **read-only** case UI **with authentication** (or stay on SSH tunnel forever).
+2. Optional authenticated case UI on a small VPS (lab default is the Pop UI on the LAN, UFW allowlisted).
 3. Only then a **dedicated** cloud Wazuh/SIEM node in a private VPC — new credentials, no Docker default passwords, not this laptop. Autonomy runs in that VPC next to the indexer.
 
 Auto-containment (loop inserts UFW with no human) remains after HITL execute is trusted in the lab, not as a cloud day-one feature.

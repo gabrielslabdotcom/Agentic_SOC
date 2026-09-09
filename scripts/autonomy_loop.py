@@ -370,16 +370,18 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             "analyst_next_steps": (
                 "1) Open Wazuh dashboard and confirm this alert/rule\n"
                 "2) Check source IP / IOCs (lab scan vs unknown)\n"
-                "3) Approve = accept triage (document only). "
-                "Reject = noise / wrong proposal. Neither runs containment."
+                "3) Open http://192.168.50.254:8080/ — Approve = accept triage "
+                "(document only). Reject = noise / wrong proposal. "
+                "Neither runs containment."
             ),
         }
         report["cases_opened"].append(case_info)
         LOG.info(
-            "opened case #%s disposition=%s | %s",
+            "opened case #%s disposition=%s rule=%s level=%s",
             updated.get("id"),
             updated.get("disposition"),
-            alert.get("description"),
+            alert.get("rule_id"),
+            alert.get("rule_level"),
         )
 
         if args.discord and discord.configured:

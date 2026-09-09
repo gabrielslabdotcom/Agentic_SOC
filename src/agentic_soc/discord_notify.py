@@ -117,7 +117,8 @@ class DiscordNotifier:
         next_steps = case.get("analyst_next_steps") or (
             "1) Confirm alert in Wazuh dashboard\n"
             "2) Review IOCs / full_log below\n"
-            "3) Record Approve or Reject (see labels) — no containment runs"
+            "3) Open http://192.168.50.254:8080/ and record Approve or Reject "
+            "(see labels) — no containment runs"
         )
         decision_legend = (
             "**Approve** records that you accept the triage "
@@ -206,7 +207,7 @@ class DiscordNotifier:
                 _field("Note preview", preview or "(empty)", inline=False, limit=900),
                 _field(
                     "Next",
-                    "Open the tunneled dashboard (port 8081), read the Cursor "
+                    "Open http://192.168.50.254:8080/, read the Cursor "
                     "investigation section, then Approve / Reject (record-only — "
                     "no containment).",
                     inline=False,

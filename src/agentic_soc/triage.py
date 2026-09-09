@@ -76,6 +76,14 @@ _AGENT_CAPACITY_PATTERNS = (
     "events may be lost",
 )
 
+# Our own journal lines re-ingested as Wazuh alerts (rule 2501 matches "authentication failure")
+_SELF_INGEST_PATTERNS = (
+    "autonomy_loop",
+    "agentic_soc.cursor_agent",
+    "opened case #",
+    "cursor cloud investigation",
+)
+
 _SUSPICIOUS_PATTERNS = (
     "failed",
     "invalid",
@@ -226,6 +234,14 @@ def is_compliance_noise(alert: dict[str, Any]) -> bool:
     return False
 
 
+def is_self_ingest_noise(alert: dict[str, Any]) -> bool:
+    """True when Wazuh ingested our own autonomy/cursor journal lines."""
+    full = (alert.get("full_log") or "").lower()
+    desc = _description(alert)
+    blob = f"{desc} {full}"
+    return any(p in blob for p in _SELF_INGEST_PATTERNS)
+
+
 def is_agent_capacity_noise(alert: dict[str, Any]) -> bool:
     """True for agent backlog/drop alerts (e.g. queue full during a flood)."""
     desc = _description(alert)
@@ -340,12 +356,20 @@ def should_open_case(
     Prefer aggregated port-scan rules (100101/100102). Lone UFW BLOCK (100100)
     floods are skipped unless the batch shows a same-source cluster.
     Agent queue-full / capacity alerts never open cases (flood side-effect).
+    Self-ingest (autonomy_loop journal echoed as syslog 2501) never opens cases.
     """
     disposition = str(judgment.get("disposition") or "")
     try:
         level_i = int(alert.get("rule_level") or 0)
     except (TypeError, ValueError):
         level_i = 0
+
+    if is_self_ingest_noise(alert):
+        return {
+            "open": False,
+            "reason": "self_ingest_noise",
+            "cluster_size": None,
+        }
 
     # Agent backlog under load — never page Discord / open a case
     if is_agent_capacity_noise(alert):
@@ -426,6 +450,17 @@ def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]
     score = float(level_i)  # base on Wazuh level (0–15 typically)
 
     # --- High-priority specialized paths ---------------------------------
+    if is_self_ingest_noise(alert):
+        reasons.append("self-ingest: autonomy/cursor journal line re-read by Wazuh")
+        return {
+            "disposition": "false_positive",
+            "confidence": 0.95,
+            "severity": "low",
+            "score": 0.0,
+            "reasons": reasons,
+            "recommended_action": _recommend_action("false_positive", level_i, 0),
+        }
+
     if is_agent_capacity_noise(alert):
         score -= 6
         reasons.append("agent capacity / event-queue backlog (flood side-effect, not an attack)")

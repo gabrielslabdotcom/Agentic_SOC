@@ -2,7 +2,7 @@
 
 Operator detail: [SETUP_GUIDE.md §8.1, §11](../SETUP_GUIDE.md).
 
-**Generate → wait for indexer → triage / autonomy → review Discord → Approve or Reject on the tunneled dashboard.**
+**Generate → wait for indexer → triage / autonomy → review Discord → Approve or Reject at http://192.168.50.254:8080/.**
 
 ## Generate lab events
 
@@ -36,7 +36,7 @@ Live autonomy on Pop already does this on an interval.
 ## Review
 
 - Discord embed (case opened, then investigation note ready)
-- http://127.0.0.1:8081/ — bulk Approve / Reject, related cases, Cursor note, containment **plan**
+- http://192.168.50.254:8080/ — bulk Approve / Reject, related cases, Cursor note, containment **plan**
 
 **Approve** = accept triage (document only). **Reject** = noise / wrong proposal. Neither runs UFW. Reject on the same `rule_id` + source IP skips repeats (~14 days).
 

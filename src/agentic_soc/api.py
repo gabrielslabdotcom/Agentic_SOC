@@ -115,9 +115,10 @@ def ui_config() -> dict[str, Any]:
     else:
         note = (
             "Mac local copy of cases.sqlite — this is NOT the Discord / autonomy DB on Pop. "
-            "Open live cases with ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/"
+            "Open live cases at http://192.168.50.254:8080/ (UFW allowlisted). "
+            "Optional fallback: ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/"
         )
-        banner = "Mac local copy — not Discord / Pop autonomy cases. Tunnel live UI on port 8081."
+        banner = "Mac local copy — not Discord / Pop autonomy cases. Live UI: http://192.168.50.254:8080/"
     return {
         "app_name": "Agentic SOC Analyst",
         "instance": instance,

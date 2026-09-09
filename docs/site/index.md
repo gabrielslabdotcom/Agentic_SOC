@@ -11,11 +11,11 @@ Pop!_OS laptop (lab SIEM host)
   ├── Wazuh Docker single-node  (manager, indexer, dashboard)
   ├── native wazuh-agent
   ├── autonomy systemd          (Discord + Cursor cloud hook)
-  └── FastAPI analyst UI        (127.0.0.1:8080 — live cases)
+  └── FastAPI analyst UI        (0.0.0.0:8080, UFW allowlisted — live cases)
 
 Mac (agent / Cursor plane)
   └── Agentic_SOC               (MCP + a separate local cases.sqlite)
-      SSH tunnel 8081 → Pop 8080  for LIVE Pop cases
+      live UI: http://192.168.50.254:8080/   (Mac uvicorn :8080 is the local copy)
 ```
 
 Typical lab IPs (replace with yours): SIEM host `192.168.50.254`, SSH alias `soc`.
@@ -34,7 +34,7 @@ Typical lab IPs (replace with yours): SIEM host `192.168.50.254`, SSH alias `soc
 
 ## Two case databases
 
-Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the Discord / autonomy DB. The Mac repo `data/cases.sqlite` is a **separate** copy. The dashboard banner says **LIVE Pop cases** vs **Mac local copy**. Use `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/ for live cases.
+Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the Discord / autonomy DB. The Mac repo `data/cases.sqlite` is a **separate** copy. The dashboard banner says **LIVE Pop cases** vs **Mac local copy**. Live UI: **http://192.168.50.254:8080/**. Mac uvicorn on `:8080` is the local copy only. Tunnel `8081` is optional fallback.
 
 ## Credentials (public pages)
 

@@ -9,11 +9,13 @@ WorkingDirectory=/home/admin/Agentic_SOC
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/admin/Agentic_SOC/src
 EnvironmentFile=-/home/admin/Agentic_SOC/.env
-# Bind localhost only — unauthenticated lab API. Prefer SSH tunnel from the Mac:
-#   ./scripts/tunnel_pop_dashboard.sh
-# then open http://127.0.0.1:8081/
-# Do not switch to 0.0.0.0 unless you also lock UFW to a single Mac IP.
-ExecStart=/home/admin/Agentic_SOC/.venv/bin/uvicorn agentic_soc.api:app --host 127.0.0.1 --port 8080
+# Bind on all interfaces. Access control is UFW: TCP 8080 only from
+# allowlisted analyst IPs (Mac LAN, optionally Kali). Do not
+# `ufw allow from 192.168.50.0/24` — that suppresses port-scan BLOCK
+# detections. The API has no login.
+# Live URL: http://192.168.50.254:8080/
+# Optional fallback: ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/
+ExecStart=/home/admin/Agentic_SOC/.venv/bin/uvicorn agentic_soc.api:app --host 0.0.0.0 --port 8080
 Restart=on-failure
 RestartSec=15
 Nice=10

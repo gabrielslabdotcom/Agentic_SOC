@@ -158,6 +158,26 @@ def test_hydra_style_auth_burst_opens():
     assert should_open_case(alert, j)["open"] is True
 
 
+def test_autonomy_journal_self_ingest_skipped():
+    """Wazuh 2501 matching our own 'opened case' journal line must not re-open."""
+    alert = _alert(
+        rule_id="2501",
+        rule_level=5,
+        description="syslog: User authentication failure.",
+        full_log=(
+            "Sep 09 07:40:01 pop-os python[325652]: 2026-09-09T07:40:01 INFO "
+            "autonomy_loop: opened case #654 disposition=suspicious | "
+            "syslog: User authentication failure."
+        ),
+        groups=["syslog"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "false_positive"
+    gate = should_open_case(alert, j)
+    assert gate["open"] is False
+    assert gate["reason"] == "self_ingest_noise"
+
+
 def test_cis_noise_skipped():
     alert = _alert(
         rule_id="19005",

@@ -14,7 +14,7 @@ ssh soc 'cd /home/admin/wazuh-docker/single-node && docker compose restart'
 | Unit | Role |
 |------|------|
 | `agentic-soc-autonomy` | Poll Wazuh → score → open cases → Discord → Cursor cloud |
-| `agentic-soc-dashboard` | FastAPI on `127.0.0.1:8080` |
+| `agentic-soc-dashboard` | FastAPI on `0.0.0.0:8080` (UFW allowlisted) |
 
 Linger so units survive logout: `loginctl enable-linger admin` (once).
 
@@ -31,14 +31,16 @@ Restart after a code sync (copy unit files, `daemon-reload`). Prefer `systemctl 
 
 ## Live analyst UI from the Mac
 
-Pop FastAPI binds **127.0.0.1:8080** only (unauthenticated). Tunnel to **8081** so a Mac uvicorn on 8080 cannot shadow live cases:
+Pop FastAPI binds **0.0.0.0:8080**. UFW allows TCP 8080 only from the Mac LAN IP (and optionally Kali) — **not** the whole subnet. The API has **no login**.
 
 ```bash
-./scripts/tunnel_pop_dashboard.sh
-# http://127.0.0.1:8081/
+# Live Discord / autonomy cases
+open http://192.168.50.254:8080/
+# Optional fallback if LAN bind is down:
+# ./scripts/tunnel_pop_dashboard.sh  →  http://127.0.0.1:8081/
 ```
 
-Banner **LIVE Pop cases** vs **Mac local copy**.
+Banner **LIVE Pop cases** vs **Mac local copy**. Mac uvicorn on `:8080` is the fixture DB only.
 
 ## Autonomy knobs (defaults)
 
