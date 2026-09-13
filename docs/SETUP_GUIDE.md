@@ -1,8 +1,13 @@
 # Agentic SOC Lab — Setup Guide
 
+> **Lab operator guide.** Real IPs, paths, and passwords for *this* lab live in gitignored [`docs/LAB_LOCAL.md`](LAB_LOCAL.md) (copy from [`LAB_LOCAL.md.example`](LAB_LOCAL.md.example)). Do not publish live values. Public pages use placeholders (`<SIEM_HOST>`, `$AGENTIC_SOC_HOME`, …).
+>
+> Sanity-check public docs: `python scripts/check_docs_sanitized.py`
+
+
 Lab reference: a **Pop!_OS laptop** runs Wazuh, autonomy, Discord notifies, Cursor cloud hook, and the LAN analyst API (UFW allowlisted); a **Mac** runs Cursor MCP and a **separate** local cases DB. Historical install steps remain below; §0 “Current lab status” is what is live.
 
-**Lab-only credentials** appear below. Do not reuse them outside this private LAN lab.
+**Lab-only credentials** belong in [`LAB_LOCAL.md`](LAB_LOCAL.md) and Pop `.env` — not in git. Placeholders below are examples only.
 
 Public-safe sectioned pages (no live passwords) for a later write-up: **[docs/site/](site/)**.
 
@@ -12,16 +17,16 @@ Public-safe sectioned pages (no live passwords) for a later write-up: **[docs/si
 
 | Role | Machine | Address |
 |------|---------|---------|
-| SIEM host | Pop!_OS laptop | `192.168.50.254` |
+| SIEM host | Pop!_OS laptop | `<SIEM_HOST>` |
 | Agent / Cursor plane | Mac (this workstation) | your Mac on the same LAN |
 | Optional Mac-offline LLM | Cursor cloud (kicked from Pop) | see §13 |
 
 | Service on laptop | URL |
 |-------------------|-----|
-| Wazuh dashboard | https://192.168.50.254 |
-| Manager API | https://192.168.50.254:55000 |
-| Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | http://192.168.50.254:8080/ (UFW allowlisted; §12.4). Mac uvicorn on `:8080` is the local copy. |
+| Wazuh dashboard | https://<SIEM_HOST> |
+| Manager API | https://<SIEM_HOST>:55000 |
+| Indexer | https://<SIEM_HOST>:9200 |
+| Analyst UI (Pop cases) | http://<SIEM_HOST>:8080/ (UFW allowlisted; §12.4). Mac uvicorn on `:8080` is the local copy. |
 
 ### Current lab status (2026-09)
 
@@ -29,24 +34,24 @@ This lab is already running. Do **not** recreate the Discord webhook or re-boots
 
 | Piece | Status |
 |-------|--------|
-| Wazuh Docker + native agent | Live on Pop (`192.168.50.254`) |
-| Discord notifies | Live (`DISCORD_WEBHOOK_URL` is set on Pop) |
+| Wazuh Docker + native agent | Live on Pop (`<SIEM_HOST>`) |
+| Discord notifies | Live webhook; optional Gateway bot for outcome buttons (`DISCORD_BOT_TOKEN` + channel — outbound WS only; §12.1) |
 | Autonomy systemd | `agentic-soc-autonomy` — `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true`, `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, `AUTONOMY_CURSOR_AGENT=true` |
-| Cursor cloud hook | Enabled on Pop; repo `https://github.com/gabrielslabdotcom/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
-| Analyst UI for live Discord cases | FastAPI on Pop `0.0.0.0:8080` (`agentic-soc-dashboard`), UFW TCP 8080 from the Mac (and optionally Kali) only. Live URL **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac uvicorn `:8080` is the local fixture DB. Tunnel `8081` is optional fallback. |
-| Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
+| Cursor cloud hook | Enabled on Pop; repo `https://github.com/<your-org>/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
+| Analyst UI for live Discord cases | FastAPI on Pop `0.0.0.0:8080` (`agentic-soc-dashboard`), UFW TCP 8080 from the Mac (and optionally Kali) only. Live URL **http://<SIEM_HOST>:8080/** (banner **LIVE Pop cases**). Mac uvicorn `:8080` is the local fixture DB. Tunnel `8081` is optional fallback. |
+| Case DBs | **Two copies.** Pop `$AGENTIC_SOC_HOME/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
 | Analyst outcomes | Record-only (status + note). False Positive / Benign / Informational / Duplicate skip repeats; Confirmed Compromise does not. Never containment. |
 | Live vs eval | Live `AUTONOMY_MIN_LEVEL=8` is unchanged. sshd/PAM **level 5** auth failures are OR'd in (`AUTONOMY_INCLUDE_AUTH`). Eval fixtures cover the same auth + sudo/rootkit shapes. |
 | Entity correlation | SQLite `entities` + `entity_links` + `find_related`. Neo4j remains deferred. |
 
-**Lab-only default passwords (Wazuh Docker single-node):**
+**Lab-only default passwords (Wazuh Docker single-node — store real values in `LAB_LOCAL.md` / `.env`):**
 
 | Surface | User | Password |
 |---------|------|----------|
-| Dashboard / Indexer | `admin` | `SecretPassword` |
-| Manager API | `wazuh-wui` | `MyS3cr37P450r.*-` |
+| Dashboard / Indexer | `admin` | `<indexer-password>` |
+| Manager API | `wazuh-wui` | `<wazuh-api-password>` |
 
-Wazuh install path on the laptop: `/home/admin/wazuh-docker/single-node`.
+Wazuh install path on the laptop: `$WAZUH_COMPOSE_DIR`.
 
 ---
 
@@ -54,7 +59,7 @@ Wazuh install path on the laptop: `/home/admin/wazuh-docker/single-node`.
 
 ### On both machines
 
-- Same LAN (Mac can reach `192.168.50.254`)
+- Same LAN (Mac can reach `<SIEM_HOST>`)
 - Docker Desktop or Docker Engine on the Pop!_OS laptop
 - Python 3.11+ on the Mac
 
@@ -72,14 +77,14 @@ Wazuh install path on the laptop: `/home/admin/wazuh-docker/single-node`.
 
 ## 2. SSH alias on the Mac
 
-1. Ensure your public key is authorized on the laptop for `admin@192.168.50.254`.
+1. Ensure your public key is authorized on the laptop for `<ssh-user>@<SIEM_HOST>`.
 
 2. Add an alias to `~/.ssh/config`:
 
 ```sshconfig
-Host soc
-  HostName 192.168.50.254
-  User admin
+Host <ssh-alias>
+  HostName <SIEM_HOST>
+  User <ssh-user>
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
 ```
@@ -90,20 +95,20 @@ Host soc
 ssh -o BatchMode=yes -o ConnectTimeout=8 soc 'hostname && whoami'
 ```
 
-You should see the laptop hostname and `admin` with no password prompt.
+You should see the laptop hostname and `<ssh-user>` with no password prompt.
 
 ---
 
 ## 3. Deploy Wazuh on Pop!_OS (Docker single-node v4.14.x)
 
-Run these on the laptop via `ssh soc` (or locally on the laptop).
+Run these on the laptop via `ssh <ssh-alias>` (or locally on the laptop).
 
 ### 3.1 Clone official Wazuh Docker repo
 
 ```bash
-ssh soc
-mkdir -p /home/admin
-cd /home/admin
+ssh <ssh-alias>
+mkdir -p ~
+cd ~
 git clone https://github.com/wazuh/wazuh-docker.git
 cd wazuh-docker
 git checkout v4.14.7   # or the tag matching your lab docs
@@ -115,7 +120,7 @@ cd single-node
 Follow the upstream single-node docs for your tag. Typically:
 
 ```bash
-cd /home/admin/wazuh-docker/single-node
+cd $WAZUH_COMPOSE_DIR
 docker compose -f generate-indexer-certs.yml run --rm generator
 ```
 
@@ -156,7 +161,7 @@ sudo sysctl -w vm.max_map_count=262144
 ### 3.5 Start the stack
 
 ```bash
-cd /home/admin/wazuh-docker/single-node
+cd $WAZUH_COMPOSE_DIR
 docker compose up -d
 docker compose ps
 ```
@@ -173,12 +178,12 @@ First boot can take several minutes while the manager API becomes ready.
 
 ```bash
 # Manager API token (lab-only password)
-curl -sk -u wazuh-wui:'MyS3cr37P450r.*-' \
+curl -sk -u wazuh-wui:'<wazuh-api-password>' \
   -X POST 'https://localhost:55000/security/user/authenticate?raw=true'
 echo
 
 # Indexer health
-curl -sk -u admin:SecretPassword 'https://localhost:9200/_cluster/health?pretty'
+curl -sk -u admin:<indexer-password> 'https://localhost:9200/_cluster/health?pretty'
 
 # Dashboard (expect 302 or 200)
 curl -sk -o /dev/null -w '%{http_code}\n' https://localhost:443
@@ -189,10 +194,10 @@ curl -sk -o /dev/null -w '%{http_code}\n' https://localhost:443
 Native agents need package install + privileges. For a quick agent without sudo:
 
 ```bash
-cd /home/admin/wazuh-docker
+cd $WAZUH_COMPOSE_DIR
 # Use upstream wazuh-agent compose if present, set manager IP to the laptop LAN IP
 cd wazuh-agent
-# Ensure WAZUH_MANAGER / WAZUH_MANAGER_SERVER points at 192.168.50.254
+# Ensure WAZUH_MANAGER / WAZUH_MANAGER_SERVER points at <SIEM_HOST>
 docker compose up -d
 docker ps --filter name=wazuh.agent
 ```
@@ -202,7 +207,7 @@ The agent may take a few minutes to enroll and show as `active` in the manager.
 Prefer the **native** agent (§3.8) for richer host telemetry. If both are enrolled, stop the Docker agent after the native one is healthy:
 
 ```bash
-ssh soc 'cd /home/admin/wazuh-docker/wazuh-agent && docker compose stop'
+ssh <ssh-alias> 'cd $WAZUH_COMPOSE_DIR/wazuh-agent && docker compose stop'
 ```
 
 ### 3.8 Native Wazuh agent on Pop!_OS (4.14.x)
@@ -233,10 +238,10 @@ systemctl status wazuh-agent --no-pager
 Verify from the manager API (expect a distinct agent, e.g. id `002` / `pop-os-native`, status `active`):
 
 ```bash
-TOKEN=$(curl -sk -u wazuh-wui:'MyS3cr37P450r.*-' \
-  -X POST 'https://192.168.50.254:55000/security/user/authenticate?raw=true')
+TOKEN=$(curl -sk -u wazuh-wui:'<wazuh-api-password>' \
+  -X POST 'https://<SIEM_HOST>:55000/security/user/authenticate?raw=true')
 curl -sk -H "Authorization: Bearer $TOKEN" \
-  'https://192.168.50.254:55000/agents?pretty=true'
+  'https://<SIEM_HOST>:55000/agents?pretty=true'
 ```
 
 ---
@@ -245,18 +250,18 @@ curl -sk -H "Authorization: Bearer $TOKEN" \
 
 Open in a browser (accept the self-signed cert warning):
 
-- Dashboard: https://192.168.50.254  
-  Login: `admin` / `SecretPassword` (**lab-only**)
+- Dashboard: https://<SIEM_HOST>  
+  Login: `admin` / `<indexer-password>` (**lab-only**)
 
 API smoke test from the Mac:
 
 ```bash
-curl -sk -u wazuh-wui:'MyS3cr37P450r.*-' \
-  -X POST 'https://192.168.50.254:55000/security/user/authenticate?raw=true'
+curl -sk -u wazuh-wui:'<wazuh-api-password>' \
+  -X POST 'https://<SIEM_HOST>:55000/security/user/authenticate?raw=true'
 echo
 
-curl -sk -u admin:SecretPassword \
-  'https://192.168.50.254:9200/_cluster/health?pretty'
+curl -sk -u admin:<indexer-password> \
+  'https://<SIEM_HOST>:9200/_cluster/health?pretty'
 ```
 
 `WAZUH_API_VERIFY_SSL=false` in `.env` is intentional for this lab’s self-signed certs.
@@ -266,7 +271,7 @@ curl -sk -u admin:SecretPassword \
 ## 5. Set up Agentic_SOC on the Mac
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -274,7 +279,7 @@ source .venv/bin/activate
 # Editable install (makes `agentic_soc` importable)
 pip install -e .
 
-# Lab config (already matches 192.168.50.254 defaults)
+# Lab config (already matches <SIEM_HOST> defaults)
 cp .env.example .env
 # Edit .env: set VIRUSTOTAL_API_KEY=... (do not commit .env)
 ```
@@ -293,7 +298,7 @@ docs/SETUP_GUIDE.md
 Scripts also prepend `src/` to `sys.path`, so they work even without the editable install if you set:
 
 ```bash
-export PYTHONPATH=/Users/admin/Documents/Agentic_SOC/src
+export PYTHONPATH=$AGENTIC_SOC_HOME/src
 ```
 
 ---
@@ -303,7 +308,7 @@ export PYTHONPATH=/Users/admin/Documents/Agentic_SOC/src
 With the venv active and Wazuh up:
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 
 python scripts/check_wazuh.py
@@ -355,22 +360,22 @@ Two FastAPI + **Agentic SOC Analyst** dashboards can run; they do **not** share 
 
 | Where | Cases DB | How to open |
 |-------|----------|-------------|
-| **Pop (live Discord / autonomy cases)** | `/home/admin/Agentic_SOC/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `0.0.0.0:8080`, UFW allowlisted. From the Mac: **http://192.168.50.254:8080/** |
+| **Pop (live Discord / autonomy cases)** | `$AGENTIC_SOC_HOME/data/cases.sqlite` | systemd `agentic-soc-dashboard` on `0.0.0.0:8080`, UFW allowlisted. From the Mac: **http://<SIEM_HOST>:8080/** |
 | **Mac (local copy)** | this repo’s `data/cases.sqlite` | `uvicorn agentic_soc.api:app --reload --port 8080` on the Mac. Fine to keep running; it is a **different** DB. |
 
 Preferred path for cases Discord opens: **Pop API on the LAN** (UFW source-IP allowlist). See §12.4.
 
 ```bash
 # Mac-local dashboard only (this Mac's cases.sqlite — not the Discord/autonomy DB)
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 uvicorn agentic_soc.api:app --reload --port 8080
 ```
 
 | URL (whichever API you pointed the browser at) | Purpose |
 |-----|---------|
-| http://192.168.50.254:8080/ (live) or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, closing outcomes, optional IOC enrich |
-| http://192.168.50.254:8080/docs | OpenAPI for tool endpoints |
+| http://<SIEM_HOST>:8080/ (live) or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, closing outcomes, optional IOC enrich |
+| http://<SIEM_HOST>:8080/docs | OpenAPI for tool endpoints |
 | http://127.0.0.1:8080/ | Mac-local uvicorn only (fixture DB) |
 
 Useful endpoints (same lab-safe semantics as CLI/MCP):
@@ -391,7 +396,7 @@ Useful endpoints (same lab-safe semantics as CLI/MCP):
 - **Duplicate** — already triaged. Skips repeats.
 - **Confirmed Compromise** — true incident. Does **not** skip. **None execute containment.**
 
-Optional: set `WAZUH_DASHBOARD_URL` in `.env` (default `https://192.168.50.254`) for the “Open Wazuh dashboard” link.
+Optional: set `WAZUH_DASHBOARD_URL` in `.env` (default `https://<SIEM_HOST>`) for the “Open Wazuh dashboard” link.
 
 ---
 
@@ -402,7 +407,7 @@ This repo ships a stdio MCP server that wraps `SocTools` (`list_agents`, `list_a
 ### 7.1 Install deps
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 pip install -e .
 ```
@@ -415,11 +420,11 @@ File: **`.cursor/mcp.json`** (paste-equivalent):
 {
   "mcpServers": {
     "agentic-soc": {
-      "command": "/Users/admin/Documents/Agentic_SOC/.venv/bin/python",
+      "command": "$AGENTIC_SOC_HOME/.venv/bin/python",
       "args": ["-m", "agentic_soc.mcp_server"],
-      "cwd": "/Users/admin/Documents/Agentic_SOC",
+      "cwd": "$AGENTIC_SOC_HOME",
       "env": {
-        "PYTHONPATH": "/Users/admin/Documents/Agentic_SOC/src"
+        "PYTHONPATH": "$AGENTIC_SOC_HOME/src"
       }
     }
   }
@@ -438,7 +443,7 @@ Do **not** put `VIRUSTOTAL_API_KEY` or Wazuh passwords in `mcp.json` — the ser
 Manual smoke test from a terminal:
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 ```
@@ -454,7 +459,7 @@ python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 5. **SQLite entity correlation** is implemented (`entities` / `entity_links` / `find_related` — see §14). Graduate to Neo4j only if multi-hop graph queries, entity volume, or relationship types outgrow SQLite. Those criteria remain deferred.
 6. **AbuseIPDB** — set `ABUSEIPDB_API_KEY` in `.env` when you add that client.
 7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. False Positive / Benign / Informational / Duplicate on the same `rule_id`+source IP skips repeats. Informational/FP may auto-close without Discord. New HITL cases get a **UFW deny dry-run plan** on the case; Execute requires `CONTAINMENT_ENABLED=true` (not set by default). **No auto-containment.**
-8. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
+8. Reference only: `~/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
 
 ### 8.1 Seeing nmap / port-scan alerts
 
@@ -468,15 +473,15 @@ A host Wazuh agent does **not** see raw packets. Port scans become alerts when:
 **Generate lab scan traffic from the Mac** (no nmap required):
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
-python scripts/generate_portscan_lab.py --host 192.168.50.254
+python scripts/generate_portscan_lab.py --host <SIEM_HOST>
 ```
 
 Or with nmap, from another LAN host:
 
 ```bash
-nmap -Pn -T4 -p 1-100,3306,3389,8080 192.168.50.254
+nmap -Pn -T4 -p 1-100,3306,3389,8080 <SIEM_HOST>
 ```
 
 Within ~30s you should see alerts such as:
@@ -487,7 +492,7 @@ Within ~30s you should see alerts such as:
 
 **Triage behavior:** aggregate rules `100101`/`100102` open cases as suspicious/true_positive. Lone `100100` floods are demoted to informational and **skipped** so you do not open dozens of duplicate low-value cases.
 
-**Important:** Do **not** `ufw allow from 192.168.50.0/24` — that would allow closed ports and suppress BLOCK logs. After `ufw reload`, restart Docker if published ports (`9200`/`55000`) stop answering on the LAN (`sudo systemctl restart docker` then `docker compose up -d` in `/home/admin/wazuh-docker/single-node`).
+**Important:** Do **not** `ufw allow from <SIEM_LAN>/24` — that would allow closed ports and suppress BLOCK logs. After `ufw reload`, restart Docker if published ports (`9200`/`55000`) stop answering on the LAN (`sudo systemctl restart docker` then `docker compose up -d` in `$WAZUH_COMPOSE_DIR`).
 
 ### 8.2 ASUS RT-AX3000 remote syslog
 
@@ -508,7 +513,7 @@ Triage treats ASUS DHCP/Wi-Fi/BWDPI/IGMP as informational and **does not open HI
 ### Manager API not ready / connection refused on `:55000`
 
 - Wait 1–3 minutes after `docker compose up -d`.
-- Check: `ssh soc 'cd /home/admin/wazuh-docker/single-node && docker compose ps && docker compose logs --tail=80 wazuh.manager'`
+- Check: `ssh <ssh-alias> 'cd $WAZUH_COMPOSE_DIR && docker compose ps && docker compose logs --tail=80 wazuh.manager'`
 
 ### `docker-credential-desktop: executable file not found`
 
@@ -524,24 +529,24 @@ Triage treats ASUS DHCP/Wi-Fi/BWDPI/IGMP as informational and **does not open HI
 
 ### Agent not listed or `pending`
 
-- Confirm manager address in agent config is `127.0.0.1` (same host) or `192.168.50.254`.
-- Native agent logs: `ssh soc 'docker run --rm --privileged --pid=host -v /:/host ubuntu:24.04 chroot /host tail -80 /var/ossec/logs/ossec.log'`
-- Docker agent logs: `ssh soc 'docker logs wazuh-agent-wazuh.agent-1 --tail=100'`
+- Confirm manager address in agent config is `127.0.0.1` (same host) or `<SIEM_HOST>`.
+- Native agent logs: `ssh <ssh-alias> 'docker run --rm --privileged --pid=host -v /:/host ubuntu:24.04 chroot /host tail -80 /var/ossec/logs/ossec.log'`
+- Docker agent logs: `ssh <ssh-alias> 'docker logs wazuh-agent-wazuh.agent-1 --tail=100'`
 - Authd / enrollment can take a few minutes.
-- Service: `ssh soc 'systemctl is-active wazuh-agent'`
+- Service: `ssh <ssh-alias> 'systemctl is-active wazuh-agent'`
 
 ### Mac cannot reach laptop
 
-- Ping `192.168.50.254`, confirm Wi‑Fi/LAN, firewall, and that Docker ports are published on `0.0.0.0`.
+- Ping `<SIEM_HOST>`, confirm Wi‑Fi/LAN, firewall, and that Docker ports are published on `0.0.0.0`.
 
 ### `ModuleNotFoundError: agentic_soc`
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 pip install -e .
 # or:
-export PYTHONPATH=/Users/admin/Documents/Agentic_SOC/src
+export PYTHONPATH=$AGENTIC_SOC_HOME/src
 ```
 
 ### Eval harness fails (`scripts/eval_triage.py` exit 1)
@@ -560,13 +565,13 @@ Usually a **feedback loop**: autonomy logs `opened case #N … authentication fa
 
 ```bash
 # Laptop stack status
-ssh soc 'cd /home/admin/wazuh-docker/single-node && docker compose ps'
+ssh <ssh-alias> 'cd $WAZUH_COMPOSE_DIR && docker compose ps'
 
 # Restart stack
-ssh soc 'cd /home/admin/wazuh-docker/single-node && docker compose restart'
+ssh <ssh-alias> 'cd $WAZUH_COMPOSE_DIR && docker compose restart'
 
 # Stop stack
-ssh soc 'cd /home/admin/wazuh-docker/single-node && docker compose down'
+ssh <ssh-alias> 'cd $WAZUH_COMPOSE_DIR && docker compose down'
 ```
 
 Keep passwords lab-only; rotate before any shared or production use.
@@ -582,9 +587,9 @@ Anyone with this repo + a working lab (or dry-run against fixtures) can follow t
 **Port scan (preferred for UFW rules):**
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
-python scripts/generate_portscan_lab.py --host 192.168.50.254
+python scripts/generate_portscan_lab.py --host <SIEM_HOST>
 ```
 
 Wait ~15–30 seconds for Wazuh to index alerts.
@@ -594,7 +599,7 @@ Wait ~15–30 seconds for Wazuh to index alerts.
 ### 11.2 Run triage
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 
 # Preview scoring without writing cases
@@ -653,12 +658,12 @@ python -c "from agentic_soc.tools import SocTools; import json; print(json.dumps
 
 ```bash
 # Live Pop cases (same DB Discord / autonomy use)
-open http://192.168.50.254:8080/dashboard/
+open http://<SIEM_HOST>:8080/dashboard/
 # Optional fallback if LAN bind is down:
 # ./scripts/tunnel_pop_dashboard.sh  →  http://127.0.0.1:8081/dashboard/
 ```
 
-A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use **http://192.168.50.254:8080/** for live cases. See §12.4.
+A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use **http://<SIEM_HOST>:8080/** for live cases. See §12.4.
 
 Closing buttons call `POST /tools/approve_case/{id}` with `disposition` (same `resolve_proposal` path as the CLI).
 
@@ -685,29 +690,67 @@ python scripts/approve_case.py --case-id 12 --disposition false_positive --note 
 
 ## 12. Autonomy service on Pop!_OS + Discord
 
-**Already live.** Pop `agentic-soc-autonomy` polls Wazuh, opens cases in `/home/admin/Agentic_SOC/data/cases.sqlite`, pings Discord, and kicks the Cursor cloud hook (`AUTONOMY_CURSOR_AGENT=true`). **Containment is never auto-executed.**
+**Already live.** Pop `agentic-soc-autonomy` polls Wazuh, opens cases in `$AGENTIC_SOC_HOME/data/cases.sqlite`, pings Discord, and kicks the Cursor cloud hook (`AUTONOMY_CURSOR_AGENT=true`). **Containment is never auto-executed.**
 
-Do **not** recreate the Discord webhook or overwrite `/home/admin/Agentic_SOC/.env`.
+Do **not** recreate the Discord webhook or overwrite `$AGENTIC_SOC_HOME/.env`.
 
-### 12.1 Discord (configured)
+### 12.1 Discord (webhook live; Gateway bot for outcome buttons)
 
-The incoming webhook is already in Pop `.env` as `DISCORD_WEBHOOK_URL`. New cases post an embed with triage reasons, rule id/level, IOCs, VT summary, log snippet, CLI snippets, and an **Analyst outcomes** field (status + note only; no containment).
+**Do not recreate the Discord webhook** — it remains the fallback when bot env is unset.
+
+#### Incoming webhook (already configured)
+
+`DISCORD_WEBHOOK_URL` is set in Pop `.env`. New cases post an embed with triage reasons, rule id/level, IOCs, VT summary, log snippet, CLI snippets, and an **Analyst outcomes** field (status + note only; no containment). Webhook messages do **not** include buttons.
 
 Smoke test only if notifies stop:
 
 ```bash
-ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scripts/check_discord.py'
+ssh <ssh-alias> 'cd $AGENTIC_SOC_HOME && source .venv/bin/activate && python scripts/check_discord.py'
 ```
 
 Replacement playbook (only if the webhook was revoked): Discord channel → Integrations → Webhooks → new URL → edit `DISCORD_WEBHOOK_URL` in Pop `.env` (never commit) → restart autonomy (§12.3).
 
+#### Gateway bot (outcome buttons — outbound only)
+
+Preferred path for case-opened messages: a Discord **Application Bot** that posts embeds with five analyst-outcome buttons. Clicks arrive over the **Gateway websocket** (Pop → Discord). There is **no Interactions HTTP URL** and **no new inbound UFW port**.
+
+Manual once (you; secrets never committed):
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) → New Application → Bot → Reset Token → copy token.
+2. OAuth2 → URL Generator: scopes `bot`; permissions **Send Messages** + **Use Application Commands** (and View Channel). Invite the bot to the lab guild.
+3. Copy the target channel snowflake (`DISCORD_CHANNEL_ID`). Optional: guild snowflake as `DISCORD_GUILD_ID` allowlist.
+4. On Pop, add to `$AGENTIC_SOC_HOME/.env` (never commit):
+
+```bash
+DISCORD_BOT_TOKEN=<bot-token>
+DISCORD_CHANNEL_ID=<channel-snowflake>
+# DISCORD_GUILD_ID=<guild-snowflake>   # optional allowlist
+```
+
+5. Install the optional extra and enable the user unit:
+
+```bash
+ssh <ssh-alias>
+cd $AGENTIC_SOC_HOME
+source .venv/bin/activate
+pip install -e '.[discord]'
+mkdir -p ~/.config/systemd/user
+cp deploy/agentic-soc-discord-bot.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now agentic-soc-discord-bot.service
+journalctl --user -u agentic-soc-discord-bot.service -f
+```
+
+Autonomy still sends notifications (`AUTONOMY_DISCORD=true`). When `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID` are set, case-opened posts go via Bot REST with buttons (`custom_id` = `soc:{disposition}:{case_id}`). The bot process handles clicks → `CaseStore.resolve_proposal(..., disposition=...)` (record-only; **no containment**). Keep the webhook in `.env` as fallback.
+
 ### 12.2 Service layout (already installed)
 
-Code lives at `/home/admin/Agentic_SOC`. User units:
+Code lives at `$AGENTIC_SOC_HOME`. User units:
 
 | Unit | Role |
 |------|------|
-| `~/.config/systemd/user/agentic-soc-autonomy.service` | Triage loop + Discord + Cursor cloud |
+| `~/.config/systemd/user/agentic-soc-autonomy.service` | Triage loop + Discord notify + Cursor cloud |
+| `~/.config/systemd/user/agentic-soc-discord-bot.service` | Gateway bot for outcome buttons (outbound WS only) |
 | `~/.config/systemd/user/agentic-soc-dashboard.service` | FastAPI analyst UI on `0.0.0.0:8080`, UFW allowlisted (§12.4) |
 
 Autonomy knobs (unit file + `.env`): `AUTONOMY_INTERVAL=120`, **`AUTONOMY_MIN_LEVEL=8`**, `AUTONOMY_INCLUDE_AUTH=true` (OR in sshd/PAM auth at level 5; do **not** lower min-level), `AUTONOMY_FEEDBACK_SKIP=true` (skip same `rule_id`+source IP after a reject), `AUTONOMY_AUTO_CLOSE_NOISE=true` (auto-close informational/FP without Discord; suspicious stays HITL), `AUTONOMY_EXCLUDE_UFW_BLOCKS=true` (skips lone rule `100100`), `AUTONOMY_MAX_CASES`, `AUTONOMY_DISCORD=true`, **`AUTONOMY_CURSOR_AGENT=true`**.
@@ -724,45 +767,47 @@ From the Mac:
 
 ```bash
 python scripts/lab_status.py
-ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
+ssh <ssh-alias> 'journalctl --user -u agentic-soc-autonomy.service -f'
+ssh <ssh-alias> 'journalctl --user -u agentic-soc-discord-bot.service -f'
 ```
 
 **Restart (preferred):** the unit uses `TimeoutStopSec=90` and the loop stops **between alerts** on SIGTERM. After copying a refreshed unit file:
 
 ```bash
-ssh soc 'cp /home/admin/Agentic_SOC/deploy/agentic-soc-autonomy.service ~/.config/systemd/user/ && systemctl --user daemon-reload'
-ssh soc 'systemctl --user restart agentic-soc-autonomy.service'
+ssh <ssh-alias> 'cp $AGENTIC_SOC_HOME/deploy/agentic-soc-autonomy.service ~/.config/systemd/user/ && systemctl --user daemon-reload'
+ssh <ssh-alias> 'systemctl --user restart agentic-soc-autonomy.service'
+ssh <ssh-alias> 'cp $AGENTIC_SOC_HOME/deploy/agentic-soc-discord-bot.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user restart agentic-soc-discord-bot.service'
 ```
 
 **Last resort** if restart still hangs past ~90s:
 
 ```bash
-ssh soc 'systemctl --user kill -s SIGKILL agentic-soc-autonomy.service; systemctl --user start agentic-soc-autonomy.service'
+ssh <ssh-alias> 'systemctl --user kill -s SIGKILL agentic-soc-autonomy.service; systemctl --user start agentic-soc-autonomy.service'
 # Same pattern for the dashboard unit if uvicorn does not die (TimeoutStopSec=30).
 ```
 
 Clean stop (when it actually exits):
 
 ```bash
-ssh soc 'systemctl --user stop agentic-soc-autonomy.service'
+ssh <ssh-alias> 'systemctl --user stop agentic-soc-autonomy.service'
 ```
 
-When Discord fires: review the embed, then **Approve / Reject** at **http://192.168.50.254:8080/** (§12.4) or `approve_case.py` against the **Pop** DB. Mac `data/cases.sqlite` is a separate copy.
+When Discord fires: use the **outcome buttons** on the embed, or record False Positive / Benign / Informational / Duplicate / Confirmed Compromise at **http://<SIEM_HOST>:8080/** (§12.4) or `approve_case.py` against the **Pop** DB. Mac `data/cases.sqlite` is a separate copy.
 
 ### 12.4 Analyst dashboard on Pop (live cases)
 
-The dashboard service binds **0.0.0.0:8080**. Access control is **UFW**, not login: TCP 8080 only from the Mac LAN IP (`192.168.50.187` at deploy; confirm with `ifconfig`) and optionally Kali (`192.168.153.148`). Do **not** `ufw allow from 192.168.50.0/24` — that suppresses port-scan BLOCK detections. The API has **no login**. Do not publish 8080 to the whole LAN.
+The dashboard service binds **0.0.0.0:8080**. Access control is **UFW**, not login: TCP 8080 only from the Mac LAN IP (`<ANALYST_HOST>` at deploy; confirm with `ifconfig`) and optionally Kali (`<KALI_HOST>`). Do **not** `ufw allow from <SIEM_LAN>/24` — that suppresses port-scan BLOCK detections. The API has **no login**. Do not publish 8080 to the whole LAN.
 
-Live URL from the Mac: **http://192.168.50.254:8080/** (or `/dashboard/`). The UI banner reads **LIVE Pop cases** vs **Mac local copy** via `cases_db_path`.
+Live URL from the Mac: **http://<SIEM_HOST>:8080/** (or `/dashboard/`). The UI banner reads **LIVE Pop cases** vs **Mac local copy** via `cases_db_path`.
 
 Mac `uvicorn --port 8080` is this repo’s fixture DB only — it will not show Discord cases. Optional fallback if the LAN bind is down: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/.
 
 Install / refresh the user unit (does **not** touch `.env`):
 
 ```bash
-ssh soc
+ssh <ssh-alias>
 mkdir -p ~/.config/systemd/user
-cp /home/admin/Agentic_SOC/deploy/agentic-soc-dashboard.service ~/.config/systemd/user/
+cp $AGENTIC_SOC_HOME/deploy/agentic-soc-dashboard.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now agentic-soc-dashboard.service
 # if enable/restart hangs past TimeoutStopSec=30: kill then start
@@ -774,19 +819,19 @@ systemctl --user status agentic-soc-dashboard.service
 UFW (source IPs only — confirm Mac IP at deploy time):
 
 ```bash
-sudo ufw allow from 192.168.50.187 to any port 8080 proto tcp comment 'analyst UI Mac'
+sudo ufw allow from <ANALYST_HOST> to any port 8080 proto tcp comment 'analyst UI Mac'
 # optional: Kali NAT IP
-sudo ufw allow from 192.168.153.148 to any port 8080 proto tcp comment 'analyst UI Kali'
+sudo ufw allow from <KALI_HOST> to any port 8080 proto tcp comment 'analyst UI Kali'
 sudo ufw status numbered | grep 8080
 ```
 
 If `sudo -n` fails, use the same Docker privileged `chroot` pattern as earlier UFW work, or run the commands on the laptop console.
 
-Verify from the Mac: `curl -sS http://192.168.50.254:8080/health`. Banner path should be `/home/admin/Agentic_SOC/data/cases.sqlite`. A non-allowlisted LAN IP should time out / be blocked.
+Verify from the Mac: `curl -sS http://<SIEM_HOST>:8080/health`. Banner path should be `$AGENTIC_SOC_HOME/data/cases.sqlite`. A non-allowlisted LAN IP should time out / be blocked.
 
 ## 13. Mac-offline LLM: Cursor cloud investigation (propose-only)
 
-**Already enabled on Pop** (`AUTONOMY_CURSOR_AGENT=true`). After each case open (same place Discord is notified), `autonomy_loop` kicks a Cursor SDK **cloud** agent. Repo: `https://github.com/gabrielslabdotcom/Agentic_SOC`. The Cursor GitHub App can see that repo; the VM **clones successfully**. This is **not** Automations-first, **not** Neo4j, **not Hydra** (Hydra breaks `sshd` on this lab — do not enable it), and **never** auto-containment.
+**Already enabled on Pop** (`AUTONOMY_CURSOR_AGENT=true`). After each case open (same place Discord is notified), `autonomy_loop` kicks a Cursor SDK **cloud** agent. Repo: `https://github.com/<your-org>/Agentic_SOC`. The Cursor GitHub App can see that repo; the VM **clones successfully**. This is **not** Automations-first, **not** Neo4j, **not Hydra** (Hydra breaks `sshd` on this lab — do not enable it), and **never** auto-containment.
 
 Do **not** re-paste `CURSOR_API_KEY` or overwrite Pop `.env` unless the key was rotated.
 
@@ -821,7 +866,7 @@ sequenceDiagram
 
 ### 13.2 LAN caveat (important)
 
-Public Cursor cloud VMs **cannot** reach `192.168.50.254` (Wazuh / Pop FastAPI on the lab LAN) without extra networking.
+Public Cursor cloud VMs **cannot** reach `<SIEM_HOST>` (Wazuh / Pop FastAPI on the lab LAN) without extra networking.
 
 | Option | Live Wazuh from agent? | Case note on SQLite? | When to use |
 |--------|------------------------|----------------------|-------------|
@@ -829,16 +874,16 @@ Public Cursor cloud VMs **cannot** reach `192.168.50.254` (Wazuh / Pop FastAPI o
 | **B. Tunnel** | Possible if tunnel includes Wazuh ports | Also possible via `AGENTIC_SOC_API_URL` (optional extra) | Want the VM itself to call Pop APIs |
 | **C. Self-hosted pool on Pop** | Yes (worker is on LAN) | Yes — local persist still works; optional `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` | Enterprise self-hosted workers |
 
-**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC`. Pop persists the investigation note locally, then Discord pings “note ready”. Analysts read it at **http://192.168.50.254:8080/** (§12.4) before Approve / Reject. HTTP write-back from the VM is optional, not required.
+**This lab’s path:** public cloud + `CURSOR_AGENT_REPO=https://github.com/<your-org>/Agentic_SOC`. Pop persists the investigation note locally, then Discord pings “note ready”. Analysts read it at **http://<SIEM_HOST>:8080/** (§12.4) before Approve / Reject. HTTP write-back from the VM is optional, not required.
 
 ### 13.3 Status on Pop (already installed)
 
-`pip install -e '.[cursor]'` is done. `.env` already has `AUTONOMY_CURSOR_AGENT=true`, `CURSOR_API_KEY`, and `CURSOR_AGENT_REPO=https://github.com/gabrielslabdotcom/Agentic_SOC`. Do not `cat > .env`.
+`pip install -e '.[cursor]'` is done. `.env` already has `AUTONOMY_CURSOR_AGENT=true`, `CURSOR_API_KEY`, and `CURSOR_AGENT_REPO=https://github.com/<your-org>/Agentic_SOC`. Do not `cat > .env`.
 
 Dry-run (prints the investigation prompt, no SDK call):
 
 ```bash
-ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
+ssh <ssh-alias> 'cd $AGENTIC_SOC_HOME && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
 ```
 
 If you must refresh the unit file after a code sync, copy + daemon-reload, then **kill + start** if restart hangs (§12.3). `.env` still drives `cursor_agent=True`.
@@ -850,7 +895,7 @@ If you must refresh the unit file after a code sync, copy + daemon-reload, then 
 | `AUTONOMY_CURSOR_AGENT` | `true` on Pop | Enable cloud investigation after case open |
 | `CURSOR_API_KEY` | set on Pop (never commit) | User or service-account key ([Integrations](https://cursor.com/dashboard/integrations)) |
 | `CURSOR_AGENT_MODEL` | `composer-2.5` | SDK model id |
-| `CURSOR_AGENT_REPO` | `https://github.com/gabrielslabdotcom/Agentic_SOC` | SCM URL cloned into the cloud VM |
+| `CURSOR_AGENT_REPO` | `https://github.com/<your-org>/Agentic_SOC` | SCM URL cloned into the cloud VM |
 | `CURSOR_AGENT_STARTING_REF` | `main` | Branch / ref for the clone |
 | `CURSOR_AGENT_NOREPO_FALLBACK` | `true` | If SCM fails, retry no-repo (case JSON only) |
 | `AGENTIC_SOC_API_URL` | empty (optional) | Unused for Phase B persist. Optional extra if the cloud VM should PATCH the case itself |
@@ -860,9 +905,9 @@ CLI mirrors: `--cursor-agent` / `--no-cursor-agent`, `--cursor-dry-run`.
 
 ### 13.5 FastAPI binding (LAN + UFW allowlist)
 
-The analyst API on Pop is the **systemd user unit** `agentic-soc-dashboard` (see §12.4): `uvicorn` on **0.0.0.0:8080**. Access control is UFW (Mac `192.168.50.187`, optionally Kali `192.168.153.148`) — the API has **no auth**. Do not allow the whole `192.168.50.0/24` subnet.
+The analyst API on Pop is the **systemd user unit** `agentic-soc-dashboard` (see §12.4): `uvicorn` on **0.0.0.0:8080**. Access control is UFW (Mac `<ANALYST_HOST>`, optionally Kali `<KALI_HOST>`) — the API has **no auth**. Do not allow the whole `<SIEM_LAN>/24` subnet.
 
-For a self-hosted pool worker on Pop, `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` is enough (worker is local). Analysts on the Mac use **http://192.168.50.254:8080/**. `./scripts/tunnel_pop_dashboard.sh` (local **8081**) is optional fallback.
+For a self-hosted pool worker on Pop, `AGENTIC_SOC_API_URL=http://127.0.0.1:8080` is enough (worker is local). Analysts on the Mac use **http://<SIEM_HOST>:8080/**. `./scripts/tunnel_pop_dashboard.sh` (local **8081**) is optional fallback.
 
 ### 13.6 Security notes
 
@@ -870,16 +915,16 @@ For a self-hosted pool worker on Pop, `AGENTIC_SOC_API_URL=http://127.0.0.1:8080
 - Cloud agent is instructed to **propose only** — no containment, no approve/reject.
 - SDK/network errors are logged as warnings; `autonomy_loop` continues (fail soft).
 - Discord and Cursor cloud are independent: Discord can stay on while Cursor is off, and vice versa.
-- **Do not use Cursor Hydra** on this lab host. Hydra interferes with `sshd` and can lock you out of `ssh soc`.
+- **Do not use Cursor Hydra** on this lab host. Hydra interferes with `sshd` and can lock you out of `ssh <ssh-alias>`.
 
 ### 13.7 Sync code from Mac → Pop
 
 ```bash
 # From the Mac repo root — never include .env or data/
 rsync -av --exclude '.venv' --exclude 'data/' --exclude '.env' \
-  /Users/admin/Documents/Agentic_SOC/ soc:/home/admin/Agentic_SOC/
+  $AGENTIC_SOC_HOME/ <ssh-alias>:$AGENTIC_SOC_HOME/
 
-ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && pip install -e ".[cursor]"'
+ssh <ssh-alias> 'cd $AGENTIC_SOC_HOME && source .venv/bin/activate && pip install -e ".[cursor]"'
 # Then kill+start units if restart hangs — see §12.3
 ```
 
@@ -887,7 +932,7 @@ Do not overwrite Pop `.env` during sync.
 
 ### 13.8 Troubleshooting: SCM / GitHub access
 
-**This lab:** the Cursor GitHub App was granted access to `gabrielslabdotcom/Agentic_SOC`; cloud agents **clone the repo**. Keep this section if SCM regresses.
+**This lab:** the Cursor GitHub App was granted access to `<your-org>/Agentic_SOC`; cloud agents **clone the repo**. Keep this section if SCM regresses.
 
 Autonomy may log:
 
@@ -901,9 +946,9 @@ That means the **Cursor GitHub App** (not your personal `git` login) cannot see 
 
 **Fix (so the VM can clone playbooks again):**
 
-1. Confirm `https://github.com/gabrielslabdotcom/Agentic_SOC` exists and `main` is pushed.
+1. Confirm `https://github.com/<your-org>/Agentic_SOC` exists and `main` is pushed.
 2. In the **same Cursor account** that minted `CURSOR_API_KEY`: [Integrations](https://cursor.com/dashboard?tab=integrations) → connect **GitHub**.
-3. On GitHub: [Applications → Cursor](https://github.com/settings/installations) → repository access → include `gabrielslabdotcom/Agentic_SOC`.
+3. On GitHub: [Applications → Cursor](https://github.com/settings/installations) → repository access → include `<your-org>/Agentic_SOC`.
 4. If it still fails: uninstall the Cursor GitHub App, **Disconnect** GitHub in the Cursor dashboard, reconnect and reinstall, then re-add the repo.
 5. Re-run a lab port-scan (or wait for the next case). After access was granted, the clone succeeded.
 

@@ -4,12 +4,14 @@ AI-first SOC lab: **Wazuh** for detection, **agents + tools** for triage and inv
 
 **Sectioned write-up (GitLab-style, public-safe placeholders):** **[docs/site/](docs/site/)** — [overview](docs/site/index.md), install, operations, [roadmap](docs/site/roadmap.md). Local preview: `cd docs/site && python3 -m http.server 8000` then http://127.0.0.1:8000/ (static files only — not the FastAPI UI on 8080).
 
-**Operator bible (lab secrets, full troubleshooting, every command):** **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**.
+**Operator bible (lab values via gitignored `docs/LAB_LOCAL.md`, full troubleshooting):** **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**.
+
+Public-doc hygiene check: `python scripts/check_docs_sanitized.py`.
 
 ## Architecture
 
 ```text
-Pop!_OS laptop (192.168.50.254)
+Pop!_OS laptop (<SIEM_HOST>)
   ├── Wazuh Docker single-node  (manager :55000, indexer :9200, dashboard :443)
   ├── native wazuh-agent        (host telemetry → manager)
   ├── autonomy systemd          (Discord + Cursor cloud hook → laptop cases.sqlite)
@@ -17,31 +19,26 @@ Pop!_OS laptop (192.168.50.254)
 
 This Mac (Cursor / agent plane)
   └── Agentic_SOC               (MCP, local cases.sqlite — a separate copy)
-      live UI: http://192.168.50.254:8080/   (Mac uvicorn :8080 is the local copy only)
+      live UI: http://<SIEM_HOST>:8080/   (Mac uvicorn :8080 is the local copy only)
 ```
 
 ## Lab endpoints (laptop)
 
 | Service | URL |
 |---------|-----|
-| Wazuh dashboard | https://192.168.50.254 |
-| Manager API | https://192.168.50.254:55000 |
-| Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | http://192.168.50.254:8080/ (UFW allowlisted; Mac uvicorn on :8080 is the local copy) |
+| Wazuh dashboard | https://<SIEM_HOST> |
+| Manager API | https://<SIEM_HOST>:55000 |
+| Indexer | https://<SIEM_HOST>:9200 |
+| Analyst UI (Pop cases) | http://<SIEM_HOST>:8080/ (UFW allowlisted; Mac uvicorn on :8080 is the local copy) |
 
-Default **lab-only** credentials (change before any non-lab use):
+Credentials stay in gitignored [`docs/LAB_LOCAL.md`](docs/LAB_LOCAL.md) (copy from [`docs/LAB_LOCAL.md.example`](docs/LAB_LOCAL.md.example)) and your `.env` — not in this README. See [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md).
 
-| Surface | User | Password |
-|---------|------|----------|
-| Dashboard / Indexer | `admin` | `SecretPassword` |
-| Manager API | `wazuh-wui` | `MyS3cr37P450r.*-` |
-
-Wazuh lives at `/home/admin/wazuh-docker/single-node` on the laptop (`ssh soc`).
+Wazuh lives at `$WAZUH_COMPOSE_DIR` on the SIEM host (`ssh <ssh-alias>`).
 
 ## Quick start (this repo)
 
 ```bash
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -59,12 +56,12 @@ Analyst dashboard (two DBs — they are not synced):
 
 | Cases you want | How |
 |----------------|-----|
-| **Live Discord / autonomy cases on Pop** | http://192.168.50.254:8080/ (banner: **LIVE Pop cases**). UFW allows TCP 8080 only from this Mac (and optionally Kali). Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/. |
+| **Live Discord / autonomy cases on Pop** | http://<SIEM_HOST>:8080/ (banner: **LIVE Pop cases**). UFW allows TCP 8080 only from this Mac (and optionally Kali). Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/. |
 | **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**). Not Discord cases. |
 
 ```bash
 # Mac-local API only (not the Discord/autonomy DB)
-cd /Users/admin/Documents/Agentic_SOC
+cd $AGENTIC_SOC_HOME
 source .venv/bin/activate
 uvicorn agentic_soc.api:app --reload --port 8080
 # OpenAPI: http://127.0.0.1:8080/docs
@@ -77,7 +74,7 @@ uvicorn agentic_soc.api:app --reload --port 8080
 Project config is at [`.cursor/mcp.json`](.cursor/mcp.json). In Cursor: **Settings → MCP** and enable **agentic-soc** (or reload MCP servers). It runs:
 
 ```bash
-/Users/admin/Documents/Agentic_SOC/.venv/bin/python -m agentic_soc.mcp_server
+$AGENTIC_SOC_HOME/.venv/bin/python -m agentic_soc.mcp_server
 ```
 
 ## Agent tool surface
@@ -106,7 +103,7 @@ python scripts/agent_triage.py --dry-run --min-level 3 --limit 20
 python scripts/agent_triage.py --min-level 3 --json-out data/triage_report.json
 
 # Generate nmap-style traffic so Wazuh sees port scans (needs UFW on the laptop)
-python scripts/generate_portscan_lab.py --host 192.168.50.254
+python scripts/generate_portscan_lab.py --host <SIEM_HOST>
 ```
 
 Uses heuristics in `src/agentic_soc/triage.py` plus VirusTotal when public IOCs appear. Never auto-contains.
@@ -131,7 +128,9 @@ Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/ -q`.
 
 ## Discord + Pop!_OS autonomy (already live)
 
-Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true` (auth L5 OR'd in), `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New **suspicious** cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval. Informational / FP that still pass the open gate auto-close without Discord.
+Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true` (auth L5 OR'd in), `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New **suspicious** cases land in **Pop** `$AGENTIC_SOC_HOME/data/cases.sqlite` and stay pending human approval. Informational / FP that still pass the open gate auto-close without Discord.
+
+Optional **Gateway bot** (`agentic-soc-discord-bot`, `pip install -e '.[discord]'`, `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID`): case-opened embeds include five analyst-outcome buttons. Clicks close via `resolve_proposal` over an **outbound** websocket only (no Interactions HTTP URL / no new inbound port). Incoming webhook remains the fallback. Setup: **[docs/SETUP_GUIDE.md §12.1](docs/SETUP_GUIDE.md)**.
 
 Auth failures at Wazuh **level 5** are OR'd into the live indexer query (`AUTONOMY_INCLUDE_AUTH`, default on) without lowering `AUTONOMY_MIN_LEVEL` from 8. A human **False Positive / Benign / Informational / Duplicate** on the same `rule_id` + source IP skips repeats for 14 days. **Confirmed Compromise** does not skip. Informational / false-positive cases that still pass the open gate may **auto-close** (`AUTONOMY_AUTO_CLOSE_NOISE`) without Discord or Cursor. Suspicious / true-positive stay HITL. Containment is still never executed.
 
@@ -140,31 +139,31 @@ Auth failures at Wazuh **level 5** are OR'd into the live indexer query (`AUTONO
 python scripts/lab_status.py
 
 # Logs / one-shot (do not overwrite Pop .env)
-ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
+ssh <ssh-alias> 'journalctl --user -u agentic-soc-autonomy.service -f'
 # Restart: systemctl --user restart is preferred (TimeoutStopSec=90).
 # SIGKILL only if it still hangs — SETUP_GUIDE §12.3
 ```
 
-Open live cases from the Mac: **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac `uvicorn --port 8080` is the local fixture DB only. Tunnel `8081` is an optional fallback.
+Open live cases from the Mac: **http://<SIEM_HOST>:8080/** (banner **LIVE Pop cases**). Mac `uvicorn --port 8080` is the local fixture DB only. Tunnel `8081` is an optional fallback.
 
 ## Mac-offline LLM (Cursor cloud — already enabled)
 
-Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. When the run finishes, **Pop copies the final reply onto the case** and Discord sends a follow-up. Repo `https://github.com/gabrielslabdotcom/Agentic_SOC`; Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Not** Automations / Neo4j / **Hydra** (Hydra breaks `sshd`). **No** auto-containment. Public cloud still cannot reach LAN Wazuh — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
+Propose-only Cursor SDK **cloud** agent, kicked from Pop after Discord notify. When the run finishes, **Pop copies the final reply onto the case** and Discord sends a follow-up. Repo `https://github.com/<your-org>/Agentic_SOC`; Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Not** Automations / Neo4j / **Hydra** (Hydra breaks `sshd`). **No** auto-containment. Public cloud still cannot reach LAN Wazuh — see **[docs/SETUP_GUIDE.md §13](docs/SETUP_GUIDE.md)**.
 
 ```bash
 # Dry-run on Pop (no need to re-set keys)
-ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
+ssh <ssh-alias> 'cd $AGENTIC_SOC_HOME && source .venv/bin/activate && python scripts/autonomy_loop.py --once --cursor-dry-run --no-discord'
 ```
 
 Build-out including HITL next steps and a constrained cloud path: **[docs/site/roadmap.md](docs/site/roadmap.md)**.
 
 ## Next steps
 
-Phase A (HITL ops) is in this repo: instance banners, LAN analyst UI on **http://192.168.50.254:8080/**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
+Phase A (HITL ops) is in this repo: instance banners, LAN analyst UI on **http://<SIEM_HOST>:8080/**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
 
-1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject at **http://192.168.50.254:8080/** (record-only). **No auto-containment.**
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and record an analyst outcome via Discord buttons or **http://<SIEM_HOST>:8080/** (record-only). **No auto-containment.**
 2. **Phase B:** Cursor final reply is stored on the case; dashboard shows **Cursor investigation**; Discord follow-up when it lands.
-3. **Phase C:** live auth L5 via OR query (min-level stays 8); Approve / Reject skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`.
+3. **Phase C:** live auth L5 via OR query (min-level stays 8); False Positive / Benign / Informational / Duplicate skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`. Optional Gateway bot unit for outcome buttons (§12.1).
 4. **Phase D:** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor. Suspicious stays HITL.
-5. **Phase E (this repo):** HITL containment *plan* — record `sudo -n ufw deny from <src>` on the case. Execute requires `CONTAINMENT_ENABLED=true` plus a separate dashboard click. Approve / autonomy never run UFW. Auto-containment stays deferred.
+5. **Phase E (this repo):** HITL containment *plan* — record `sudo -n ufw deny from <src>` on the case. Execute requires `CONTAINMENT_ENABLED=true` plus a separate dashboard click. Analyst outcomes / autonomy never run UFW. Auto-containment stays deferred.
 6. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra.

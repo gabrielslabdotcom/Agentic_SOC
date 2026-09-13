@@ -15,10 +15,10 @@ Pop!_OS laptop (lab SIEM host)
 
 Mac (agent / Cursor plane)
   └── Agentic_SOC               (MCP + a separate local cases.sqlite)
-      live UI: http://192.168.50.254:8080/   (Mac uvicorn :8080 is the local copy)
+      live UI: http://<SIEM_HOST>:8080/   (Mac uvicorn :8080 is the local copy)
 ```
 
-Typical lab IPs (replace with yours): SIEM host `192.168.50.254`, SSH alias `soc`.
+Typical lab IPs (replace with yours): SIEM host `<SIEM_HOST>`, SSH alias `<ssh-alias>`.
 
 ## What is live vs what is not
 
@@ -34,7 +34,7 @@ Typical lab IPs (replace with yours): SIEM host `192.168.50.254`, SSH alias `soc
 
 ## Two case databases
 
-Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the Discord / autonomy DB. The Mac repo `data/cases.sqlite` is a **separate** copy. The dashboard banner says **LIVE Pop cases** vs **Mac local copy**. Live UI: **http://192.168.50.254:8080/**. Mac uvicorn on `:8080` is the local copy only. Tunnel `8081` is optional fallback.
+Pop `$AGENTIC_SOC_HOME/data/cases.sqlite` is the Discord / autonomy DB. The Mac repo `data/cases.sqlite` is a **separate** copy. The dashboard banner says **LIVE Pop cases** vs **Mac local copy**. Live UI: **http://<SIEM_HOST>:8080/**. Mac uvicorn on `:8080` is the local copy only. Tunnel `8081` is optional fallback.
 
 ## Credentials (public pages)
 

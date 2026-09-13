@@ -12,7 +12,7 @@ Analyst outcomes **never** run that command. The dashboard **Containment plan** 
 
 ## Safety
 
-Plans are refused for loopback, multicast, unspecified, link-local, and protected lab hosts (default includes `192.168.50.254`). IPv6 is not supported in this slice.
+Plans are refused for loopback, multicast, unspecified, link-local, and protected lab hosts (default includes `<SIEM_HOST>`). IPv6 is not supported in this slice.
 
 Autonomy **never** calls execute. Default env:
 

@@ -4,7 +4,7 @@ Operator detail: [SETUP_GUIDE.md §1](../SETUP_GUIDE.md).
 
 ## Both machines
 
-- Same LAN (the Mac must reach the Pop SIEM host, typically `192.168.50.254`)
+- Same LAN (the Mac must reach the Pop SIEM host, typically `<SIEM_HOST>`)
 - Docker Engine on Pop!_OS (Wazuh single-node images need several GB)
 - Python 3.11+ on the Mac (and on Pop for autonomy)
 

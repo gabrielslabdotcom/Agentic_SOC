@@ -1,0 +1,23 @@
+# Paths below are host-specific — edit WorkingDirectory / EnvironmentFile for your install ($AGENTIC_SOC_HOME).
+# Outbound Discord Gateway only (websocket to discord.com). No inbound Interaction URL / no new UFW port.
+[Unit]
+Description=Agentic SOC Discord Gateway bot (analyst outcome buttons)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/admin/Agentic_SOC
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/admin/Agentic_SOC/.env
+# Requires: pip install -e '.[discord]' and DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID in .env
+ExecStart=/home/admin/Agentic_SOC/.venv/bin/python /home/admin/Agentic_SOC/scripts/discord_bot.py
+Restart=on-failure
+RestartSec=15
+Nice=10
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=default.target

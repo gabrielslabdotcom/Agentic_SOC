@@ -2,17 +2,17 @@
 
 Operator detail: [SETUP_GUIDE.md §8.1, §11](../SETUP_GUIDE.md).
 
-**Generate → wait for indexer → triage / autonomy → review Discord → record an analyst outcome at http://192.168.50.254:8080/.**
+**Generate → wait for indexer → triage / autonomy → review Discord → record an analyst outcome at http://<SIEM_HOST>:8080/.**
 
 ## Generate lab events
 
 Port scan (UFW + custom rules `100100` / `100101` / `100102`):
 
 ```bash
-python scripts/generate_portscan_lab.py --host 192.168.50.254
+python scripts/generate_portscan_lab.py --host <SIEM_HOST>
 ```
 
-Wait ~15–30s. A host agent does **not** see raw packets; it needs UFW logging + local rules. Do **not** `ufw allow from 192.168.50.0/24` or BLOCK logs disappear.
+Wait ~15–30s. A host agent does **not** see raw packets; it needs UFW logging + local rules. Do **not** `ufw allow from <SIEM_LAN>/24` or BLOCK logs disappear.
 
 Optional: a few failed SSH logins from another host (do not lock yourself out).
 
@@ -36,7 +36,7 @@ Live autonomy on Pop already does this on an interval.
 ## Review
 
 - Discord embed (case opened, then investigation note ready)
-- http://192.168.50.254:8080/ — bulk close dropdown, related cases, Cursor note, containment **plan**
+- http://<SIEM_HOST>:8080/ — bulk close dropdown, related cases, Cursor note, containment **plan**
 
 **False Positive / Benign / Informational / Duplicate** skip the same `rule_id` + source IP (~14 days). **Confirmed Compromise** does not skip. None run UFW.
 

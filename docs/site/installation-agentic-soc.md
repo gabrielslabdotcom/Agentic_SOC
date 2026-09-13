@@ -13,7 +13,7 @@ cp .env.example .env
 # set VIRUSTOTAL_API_KEY and Wazuh URLs/passwords in .env — never commit .env
 ```
 
-Pop autonomy uses the same repo at `/home/admin/Agentic_SOC` with its **own** `.env` (Discord, Cursor key). Sync with rsync **excluding** `.env` and `data/`. Cursor extra on Pop: `pip install -e '.[cursor]'`.
+Pop autonomy uses the same repo at `$AGENTIC_SOC_HOME` with its **own** `.env` (Discord, Cursor key). Sync with rsync **excluding** `.env` and `data/`. Cursor extra on Pop: `pip install -e '.[cursor]'`.
 
 ## Health checks
 
@@ -38,7 +38,7 @@ Tools wrap `SocTools`: alerts, cases, `propose_action`, `enrich_ioc`, entity `fi
 
 | Cases | How |
 |-------|-----|
-| Live Discord / autonomy (Pop) | http://192.168.50.254:8080/ (UFW allowlisted) |
+| Live Discord / autonomy (Pop) | http://<SIEM_HOST>:8080/ (UFW allowlisted) |
 | Mac local copy | `uvicorn agentic_soc.api:app --reload --port 8080` |
 
 The API has **no auth**. Access control is UFW (source IPs only — not the whole LAN). OpenAPI: `/docs` on whichever instance you started. Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/.

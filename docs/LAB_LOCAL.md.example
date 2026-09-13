@@ -1,0 +1,22 @@
+# Lab-local values (not committed)
+
+Copy to `docs/LAB_LOCAL.md` and fill in **your** lab. That file is gitignored.
+
+| Concept | Your value |
+|---------|------------|
+| SIEM host (LAN IP or DNS) | `192.0.2.10` |
+| SSH alias | `soc` |
+| SSH user | `labadmin` |
+| Agentic install dir on SIEM host | `/home/labadmin/Agentic_SOC` |
+| Wazuh compose dir | `/home/labadmin/wazuh-docker/single-node` |
+| Analyst UI | `http://192.0.2.10:8080/` |
+| Wazuh dashboard | `https://192.0.2.10` |
+| Manager API | `https://192.0.2.10:55000` |
+| Indexer | `https://192.0.2.10:9200` |
+| GitHub repo | `https://github.com/<your-org>/Agentic_SOC` |
+| Wazuh API user / password | see your Wazuh install |
+| Indexer user / password | see your Wazuh install |
+| Discord webhook URL | Pop `.env` only — never commit |
+| Discord bot token / channel / guild | Pop `.env` only — never commit |
+
+Use these when following [`SETUP_GUIDE.md`](SETUP_GUIDE.md). Public pages (`README.md`, `docs/site/`) use placeholders only (`<SIEM_HOST>`, `$AGENTIC_SOC_HOME`, …).

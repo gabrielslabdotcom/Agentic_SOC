@@ -12,7 +12,7 @@ Short index. Full playbooks: [SETUP_GUIDE.md §9](../SETUP_GUIDE.md) and §13.8.
 | Mac cannot reach Pop | Ping LAN IP, Wi-Fi, published Docker ports |
 | `ModuleNotFoundError: agentic_soc` | `pip install -e .` or `PYTHONPATH=.../src` |
 | `eval_triage.py` exit 1 | Tune `triage.py` or labels; `--json-out` failures list |
-| Dashboard shows Mac cases | Use **http://192.168.50.254:8080/**, not Mac uvicorn 8080. Banner path should be `/home/admin/Agentic_SOC/data/cases.sqlite`. |
+| Dashboard shows Mac cases | Use **http://<SIEM_HOST>:8080/**, not Mac uvicorn 8080. Banner path should be `$AGENTIC_SOC_HOME/data/cases.sqlite`. |
 | Cursor SCM validation_error | GitHub App access to the repo; no-repo fallback still opens the case |
 | Autonomy restart SIGKILL | Sleep interval 120s vs `TimeoutStopSec=90` — last-resort kill then start |
 | Discord silent | `python scripts/check_discord.py` on Pop; do not recreate webhook unless revoked |

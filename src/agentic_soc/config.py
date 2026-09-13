@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     abuseipdb_api_key: str = ""
     virustotal_api_key: str = ""
     discord_webhook_url: str = ""
+    # Gateway bot (outbound WS on Pop). Prefer over webhook for case-opened buttons.
+    # Never commit real token values — set on Pop .env only.
+    discord_bot_token: str = ""
+    discord_channel_id: str = ""
+    discord_guild_id: str = ""
 
     # Optional Cursor cloud investigation (Mac-offline / Pop autonomy hook)
     # Install: pip install -e '.[cursor]'  — disabled until AUTONOMY_CURSOR_AGENT=true

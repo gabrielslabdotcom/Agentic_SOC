@@ -1,26 +1,23 @@
 # Installation — SSH
 
-Operator detail: [SETUP_GUIDE.md §2](../SETUP_GUIDE.md).
+Operator detail: [SETUP_GUIDE.md §2](../SETUP_GUIDE.md) (keys, `~/.ssh/config`).
 
-From the Mac, key-based SSH to the laptop should work with **no password prompt**.
+From the Mac, key-based SSH to the SIEM host should work with **no password prompt**.
 
-1. Authorize your public key for `admin@<POP_LAN_IP>`.
-2. Add an alias to `~/.ssh/config`:
+Example `~/.ssh/config` (fill placeholders from [`LAB_LOCAL.md`](../LAB_LOCAL.md.example)):
 
 ```sshconfig
-Host soc
-  HostName 192.168.50.254
-  User admin
+Host <ssh-alias>
+  HostName <SIEM_HOST>
+  User <ssh-user>
   IdentityFile ~/.ssh/id_ed25519
   IdentitiesOnly yes
 ```
 
-3. Test:
+Smoke test:
 
 ```bash
-ssh -o BatchMode=yes -o ConnectTimeout=8 soc 'hostname && whoami'
+ssh -o BatchMode=yes -o ConnectTimeout=8 <ssh-alias> 'hostname && whoami'
 ```
-
-You should see the laptop hostname and `admin`.
 
 Next: [Installation — Wazuh](installation-wazuh.md).

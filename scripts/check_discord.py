@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a test message to DISCORD_WEBHOOK_URL from .env."""
+"""Send a test case-opened message via Discord bot REST or webhook from .env."""
 
 from __future__ import annotations
 
@@ -18,12 +18,13 @@ from agentic_soc.discord_notify import DiscordNotifier  # noqa: E402
 async def main() -> int:
     n = DiscordNotifier()
     if not n.configured:
-        print("DISCORD_WEBHOOK_URL is not set in .env")
-        print("Discord → Server → Channel → Edit → Integrations → Webhooks → New Webhook → Copy URL")
+        print("Neither Discord bot nor webhook is configured in .env")
+        print("  Bot (preferred, buttons): DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID")
+        print("  Fallback: DISCORD_WEBHOOK_URL")
         return 1
     sample = {
         "id": 0,
-        "title": "[auto][suspicious] Example port-scan (webhook test)",
+        "title": "[auto][suspicious] Example port-scan (discord test)",
         "disposition": "suspicious",
         "severity": "high",
         "confidence": 0.7,
@@ -33,14 +34,18 @@ async def main() -> int:
         "rule_id": "100102",
         "rule_level": 8,
         "timestamp": "2026-09-07T00:00:00.000Z",
-        "source_ip": "192.168.153.148",
-        "iocs": [{"ioc": "192.168.153.148", "ioc_type": "ip"}],
+        "source_ip": "192.0.2.10",
+        "iocs": [{"ioc": "192.0.2.10", "ioc_type": "ip"}],
         "reasons": ["aggregated port-scan / UFW correlation rule (100102)"],
         "enrichments": [],
-        "full_log": "kernel: [UFW BLOCK] SRC=192.168.153.148 DST=192.168.50.254 DPT=3389",
+        "full_log": "kernel: [UFW BLOCK] SRC=192.0.2.10 DST=198.51.100.1 DPT=3389",
     }
     result = await n.notify_case_opened(sample)
     print(result)
+    if result.get("via") == "bot":
+        print("(posted via Gateway bot REST — buttons included when case id is set)")
+    elif result.get("via") == "webhook":
+        print("(posted via webhook fallback — no buttons)")
     return 0 if result.get("ok") else 1
 
 

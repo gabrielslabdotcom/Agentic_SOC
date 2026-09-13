@@ -33,7 +33,7 @@ Not:  unauthenticated FastAPI or indexer on the public internet
 Not:  autonomy on a public PaaS next to the blog (it must sit by the indexer)
 ```
 
-**Already cloud:** Cursor investigation. Those VMs cannot reach `192.168.50.254`; Pop copies notes back. That split stays.
+**Already cloud:** Cursor investigation. Those VMs cannot reach `<SIEM_HOST>`; Pop copies notes back. That split stays.
 
 **Reasonable sequence:**
 
