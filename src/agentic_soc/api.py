@@ -9,8 +9,9 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from agentic_soc.analyst_outcomes import coerce_analyst_disposition
 from agentic_soc.config import hostname
 from agentic_soc.tools import get_tools
 
@@ -53,16 +54,44 @@ class ProposeActionBody(BaseModel):
 
 
 class ApproveCaseBody(BaseModel):
-    approved: bool
+    approved: Optional[bool] = Field(
+        default=None,
+        description="Deprecated alias: true→confirmed_compromise, false→false_positive.",
+    )
+    disposition: Optional[str] = Field(
+        default=None,
+        description="Analyst outcome: false_positive, benign, informational, duplicate, confirmed_compromise.",
+    )
     note: str = ""
     author: str = "human"
+
+    @model_validator(mode="after")
+    def _require_outcome(self) -> ApproveCaseBody:
+        try:
+            self.disposition = coerce_analyst_disposition(
+                disposition=self.disposition, approved=self.approved
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class BulkApproveBody(BaseModel):
     case_ids: list[int] = Field(..., min_length=1, max_length=100)
-    approved: bool
+    approved: Optional[bool] = None
+    disposition: Optional[str] = None
     note: str = ""
     author: str = "human"
+
+    @model_validator(mode="after")
+    def _require_outcome(self) -> BulkApproveBody:
+        try:
+            self.disposition = coerce_analyst_disposition(
+                disposition=self.disposition, approved=self.approved
+            )
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class UpsertEntityBody(BaseModel):
@@ -104,12 +133,15 @@ def ui_config() -> dict[str, Any]:
     min_level = os.environ.get("AUTONOMY_MIN_LEVEL", "8")
     if live:
         note = (
-            "LIVE Pop cases (Discord / autonomy DB). Approve / Reject record status + note only. "
-            "Containment is never executed. Live min-level stays 8; sshd/PAM auth failures "
-            "at level 5 are OR'd in (AUTONOMY_INCLUDE_AUTH). A reject on the same "
-            "rule_id+source IP skips repeats. Informational/FP cases may auto-close "
-            "without Discord (AUTONOMY_AUTO_CLOSE_NOISE). Approve stays record-only. "
-            "UFW deny is a dry-run plan unless CONTAINMENT_ENABLED=true (still HITL, never auto)."
+            "LIVE Pop cases (Discord / autonomy DB). Analyst outcomes "
+            "(false positive, benign, informational, duplicate, confirmed compromise) "
+            "record status + note only. Containment is never executed. Live min-level "
+            "stays 8; sshd/PAM auth failures at level 5 are OR'd in (AUTONOMY_INCLUDE_AUTH). "
+            "False positive / benign / informational / duplicate on the same "
+            "rule_id+source IP skips repeats. Confirmed compromise does not skip. "
+            "Informational/FP cases may auto-close without Discord "
+            "(AUTONOMY_AUTO_CLOSE_NOISE). UFW deny is a dry-run plan unless "
+            "CONTAINMENT_ENABLED=true (still HITL, never auto)."
         )
         banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
     else:
@@ -199,17 +231,20 @@ def list_cases(
 @app.post("/tools/approve_case/{case_id}")
 def approve_case(case_id: int, body: ApproveCaseBody) -> dict[str, Any]:
     """
-    Approve or reject a proposed action (same path as scripts/approve_case.py).
+    Record an analyst closing outcome (same path as scripts/approve_case.py).
 
     Lab-safe: updates status + notes only; never executes containment.
     """
     result = get_tools().resolve_proposal(
         case_id,
-        approved=body.approved,
+        disposition=body.disposition,
         note=body.note,
         author=body.author,
     )
     if result.get("error"):
+        err = str(result.get("error") or "")
+        if "unknown analyst" in err or "provide disposition" in err:
+            raise HTTPException(status_code=400, detail=result)
         raise HTTPException(status_code=404, detail=result)
     return result
 
@@ -217,13 +252,13 @@ def approve_case(case_id: int, body: ApproveCaseBody) -> dict[str, Any]:
 @app.post("/tools/approve_cases")
 def approve_cases(body: BulkApproveBody) -> dict[str, Any]:
     """
-    Bulk Approve or Reject (same record-only path as a single approve).
+    Bulk close with an analyst outcome (same record-only path as a single close).
 
     Skips cases that are not open. Never executes containment.
     """
     return get_tools().resolve_proposals(
         body.case_ids,
-        approved=body.approved,
+        disposition=body.disposition,
         note=body.note,
         author=body.author,
     )
@@ -231,7 +266,7 @@ def approve_cases(body: BulkApproveBody) -> dict[str, Any]:
 
 @app.get("/tools/feedback_summary")
 def feedback_summary(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
-    """Human Approve / Reject history used to skip repeat lab noise."""
+    """Human closing-outcome history used to skip repeat lab noise."""
     return get_tools().feedback_summary(limit=limit)
 
 

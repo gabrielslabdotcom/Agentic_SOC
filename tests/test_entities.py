@@ -140,6 +140,36 @@ def test_reject_same_rule_and_source_skips(tmp_path: Path) -> None:
     assert missing["skip"] is False
 
 
+def test_confirmed_compromise_does_not_skip(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    case = store.open_case(
+        title="real scan",
+        alert_id="alert-scan-1",
+        rule_id="100101",
+        source_ip="203.0.113.80",
+    )
+    store.resolve_proposal(
+        case["id"],
+        disposition="confirmed_compromise",
+        note="unauthorized nmap",
+    )
+    skip = store.rejected_similar(rule_id="100101", source_ip="203.0.113.80")
+    assert skip["skip"] is False
+
+
+def test_benign_skips_repeats(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    case = store.open_case(
+        title="lab scan",
+        alert_id="alert-scan-2",
+        rule_id="100102",
+        source_ip="192.168.50.187",
+    )
+    store.resolve_proposal(case["id"], disposition="benign", note="our kali")
+    skip = store.rejected_similar(rule_id="100102", source_ip="192.168.50.187")
+    assert skip["skip"] is True
+
+
 def test_auto_close_noise_records_skip_feedback(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "cases.sqlite")
     case = store.open_case(

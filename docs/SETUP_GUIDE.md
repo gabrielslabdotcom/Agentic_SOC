@@ -35,7 +35,7 @@ This lab is already running. Do **not** recreate the Discord webhook or re-boots
 | Cursor cloud hook | Enabled on Pop; repo `https://github.com/gabrielslabdotcom/Agentic_SOC`. Cursor GitHub App SCM access is granted (clone works). No-repo fallback remains if SCM fails. **Do not use Hydra** — it breaks `sshd`. |
 | Analyst UI for live Discord cases | FastAPI on Pop `0.0.0.0:8080` (`agentic-soc-dashboard`), UFW TCP 8080 from the Mac (and optionally Kali) only. Live URL **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac uvicorn `:8080` is the local fixture DB. Tunnel `8081` is optional fallback. |
 | Case DBs | **Two copies.** Pop `/home/admin/Agentic_SOC/data/cases.sqlite` is the live Discord/autonomy DB. Mac `data/cases.sqlite` is a separate local copy. The dashboard banner says which one you are looking at. |
-| Approve / Reject | Record-only (status + note). Never containment. Discord embeds and the dashboard glossary say the same thing. |
+| Analyst outcomes | Record-only (status + note). False Positive / Benign / Informational / Duplicate skip repeats; Confirmed Compromise does not. Never containment. |
 | Live vs eval | Live `AUTONOMY_MIN_LEVEL=8` is unchanged. sshd/PAM **level 5** auth failures are OR'd in (`AUTONOMY_INCLUDE_AUTH`). Eval fixtures cover the same auth + sudo/rootkit shapes. |
 | Entity correlation | SQLite `entities` + `entity_links` + `find_related`. Neo4j remains deferred. |
 
@@ -369,24 +369,27 @@ uvicorn agentic_soc.api:app --reload --port 8080
 
 | URL (whichever API you pointed the browser at) | Purpose |
 |-----|---------|
-| http://192.168.50.254:8080/ (live) or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, Approve / Reject, optional IOC enrich |
+| http://192.168.50.254:8080/ (live) or `/dashboard/` | Analyst UI: list/filter cases, related cases, alert context, closing outcomes, optional IOC enrich |
 | http://192.168.50.254:8080/docs | OpenAPI for tool endpoints |
 | http://127.0.0.1:8080/ | Mac-local uvicorn only (fixture DB) |
 
 Useful endpoints (same lab-safe semantics as CLI/MCP):
 
-- `GET /tools/list_cases?status=open|approved|rejected|pending` (`pending` → open)
+- `GET /tools/list_cases?status=open|false_positive|benign|informational|duplicate|confirmed_compromise|auto_closed|pending` (`pending` → open). Legacy `approved`/`rejected` still list old rows.
 - `GET /tools/get_case/{case_id}`
-- `POST /tools/approve_case/{case_id}` body `{"approved": true|false, "note": "..."}` — **no containment**
+- `POST /tools/approve_case/{case_id}` body `{"disposition": "benign", "note": "..."}` — **no containment**. Deprecated: `{"approved": true|false}` maps to confirmed_compromise / false_positive.
 - `GET /tools/find_related?case_id=` — other cases sharing IP / hash / user / domain
 - `POST /tools/upsert_entity`, `POST /tools/link_alert_to_entity`, `POST /tools/link_case_to_entity`
 - `GET /tools/get_alert/{alert_id}`, `GET /tools/enrich_ioc?ioc=...`
 - `GET /tools/ui_config` — Wazuh dashboard link + cases DB path for the UI
 
-**Approve / Reject** (dashboard glossary + Discord embed field “What Approve / Reject records”):
+**Analyst outcomes** (dashboard glossary + Discord embed):
 
-- **Approve** — accept the triage (disposition + recommended action). Status becomes `approved`; a note is stored. **No containment.**
-- **Reject** — noise, duplicate, or wrong proposal. Status becomes `rejected`; a note is stored. **Also no containment.**
+- **False Positive** — detector was wrong. Skips repeats (`rule_id` + source IP, 14 days).
+- **Benign** — real event, authorized/expected (lab nmap). Skips repeats.
+- **Informational** — awareness only. Skips repeats.
+- **Duplicate** — already triaged. Skips repeats.
+- **Confirmed Compromise** — true incident. Does **not** skip. **None execute containment.**
 
 Optional: set `WAZUH_DASHBOARD_URL` in `.env` (default `https://192.168.50.254`) for the “Open Wazuh dashboard” link.
 
@@ -450,7 +453,7 @@ python -c "from agentic_soc.mcp_server import mcp; print('server', mcp.name)"
 4. **Triage eval** — `python scripts/eval_triage.py` against `evals/labeled_alerts.json` (§11.3).
 5. **SQLite entity correlation** is implemented (`entities` / `entity_links` / `find_related` — see §14). Graduate to Neo4j only if multi-hop graph queries, entity volume, or relationship types outgrow SQLite. Those criteria remain deferred.
 6. **AbuseIPDB** — set `ABUSEIPDB_API_KEY` in `.env` when you add that client.
-7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. Reject on the same `rule_id`+source IP skips repeats. Informational/FP may auto-close without Discord. New HITL cases get a **UFW deny dry-run plan** on the case; Execute requires `CONTAINMENT_ENABLED=true` (not set by default). **No auto-containment.**
+7. Live autonomy stays at **min-level 8**. Auth L5 is ingested via an OR query (`AUTONOMY_INCLUDE_AUTH`); do **not** lower `AUTONOMY_MIN_LEVEL`. False Positive / Benign / Informational / Duplicate on the same `rule_id`+source IP skips repeats. Informational/FP may auto-close without Discord. New HITL cases get a **UFW deny dry-run plan** on the case; Execute requires `CONTAINMENT_ENABLED=true` (not set by default). **No auto-containment.**
 8. Reference only: `/home/admin/Blue-Team-MCP` on the laptop (optional host tools; not required for this scaffold).
 
 ### 8.1 Seeing nmap / port-scan alerts
@@ -485,6 +488,18 @@ Within ~30s you should see alerts such as:
 **Triage behavior:** aggregate rules `100101`/`100102` open cases as suspicious/true_positive. Lone `100100` floods are demoted to informational and **skipped** so you do not open dozens of duplicate low-value cases.
 
 **Important:** Do **not** `ufw allow from 192.168.50.0/24` — that would allow closed ports and suppress BLOCK logs. After `ufw reload`, restart Docker if published ports (`9200`/`55000`) stop answering on the LAN (`sudo systemctl restart docker` then `docker compose up -d` in `/home/admin/wazuh-docker/single-node`).
+
+### 8.2 ASUS RT-AX3000 remote syslog
+
+The lab router (ASUS RT-AX3000, firmware `3.0.0.4.388`) already sends **UDP syslog to `192.168.50.254:514`**. Sample lines:
+
+- `HTTPD: [LOGIN] [http][Web] success (192.168.50.187)` — admin UI login
+- `kernel: DROP IN=eth4 ... SRC=0.0.0.0 DST=224.0.0.1` — IGMP/multicast, not a WAN scan
+- `BWDPI:`, `rc_service:`, `hour monitor:` — appliance noise
+
+This is **not** a Wazuh agent. The manager must listen for syslog (`deploy/wazuh/`). Compose already publishes `514/udp`; `ossec.conf` needs a `<remote>` syslog block with `allowed-ips` **192.168.50.1** (LAN gateway). Custom decoder/rules `100200`–`100203` live in `deploy/wazuh/local_decoder.xml` and `local_rules.xml`.
+
+Triage treats ASUS DHCP/Wi-Fi/BWDPI/IGMP as informational and **does not open HITL cases**. Web login **failures** stay HITL (`100202`). This does not replace Pop UFW rules `100100`–`100102`.
 
 ---
 
@@ -626,7 +641,7 @@ pip install pytest
 pytest tests/ -q
 ```
 
-### 11.4 Approve or reject a proposed action
+### 11.4 Record an analyst closing outcome
 
 List recent cases (MCP `list_cases`, HTTP API, dashboard, or Python):
 
@@ -645,24 +660,26 @@ open http://192.168.50.254:8080/dashboard/
 
 A Mac-local `uvicorn --port 8080` is fine for this repo’s `data/cases.sqlite`; it will **not** show cases Discord just opened. Use **http://192.168.50.254:8080/** for live cases. See §12.4.
 
-Approve / Reject in the UI calls `POST /tools/approve_case/{id}` (same `resolve_proposal` path as the CLI).
+Closing buttons call `POST /tools/approve_case/{id}` with `disposition` (same `resolve_proposal` path as the CLI).
 
 **What those decisions record (lab):**
 
-- **Approve** — you accept the triage (disposition + recommended action). Case status becomes `approved`; a note is stored. **No containment runs.**
-- **Reject** — you treat the case as noise, a duplicate, or a wrong proposal. Status becomes `rejected`; a note is stored. **Also no containment.**
+- **False Positive** — detector was wrong. Status `false_positive`. Skips repeats.
+- **Benign** — real, authorized/expected. Status `benign`. Skips repeats.
+- **Informational** — awareness only. Status `informational`. Skips repeats.
+- **Duplicate** — already triaged. Status `duplicate`. Skips repeats.
+- **Confirmed Compromise** — true incident. Status `confirmed_compromise`. Does **not** skip.
 
-CLI approve / reject (updates status + notes only):
+CLI (updates status + notes only):
 
 ```bash
-# Approve
-python scripts/approve_case.py --case-id 12 --approve --note "Confirmed lab port-scan; document only"
-
-# Reject
-python scripts/approve_case.py --case-id 12 --reject --note "CIS noise / duplicate"
+python scripts/approve_case.py --case-id 12 --disposition benign --note "Confirmed lab port-scan; document only"
+python scripts/approve_case.py --case-id 12 --disposition false_positive --note "self-ingest 2501"
 ```
 
-Status becomes `approved` or `rejected`. **No firewall, agent kill, or other containment runs** — this is an approval stub for the propose_action path.
+`--approve` / `--reject` remain as aliases for confirmed_compromise / false_positive.
+
+**No firewall, agent kill, or other containment runs.** Historical open 2501 self-ingest rows: `python scripts/bulk_close_noise_cases.py --rule-id 2501` (dry-run; `--apply` to close).
 
 ---
 
@@ -674,7 +691,7 @@ Do **not** recreate the Discord webhook or overwrite `/home/admin/Agentic_SOC/.e
 
 ### 12.1 Discord (configured)
 
-The incoming webhook is already in Pop `.env` as `DISCORD_WEBHOOK_URL`. New cases post an embed with triage reasons, rule id/level, IOCs, VT summary, log snippet, CLI snippets, and a **What Approve / Reject records** field (status + note only; no containment).
+The incoming webhook is already in Pop `.env` as `DISCORD_WEBHOOK_URL`. New cases post an embed with triage reasons, rule id/level, IOCs, VT summary, log snippet, CLI snippets, and an **Analyst outcomes** field (status + note only; no containment).
 
 Smoke test only if notifies stop:
 

@@ -370,9 +370,9 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             "analyst_next_steps": (
                 "1) Open Wazuh dashboard and confirm this alert/rule\n"
                 "2) Check source IP / IOCs (lab scan vs unknown)\n"
-                "3) Open http://192.168.50.254:8080/ — Approve = accept triage "
-                "(document only). Reject = noise / wrong proposal. "
-                "Neither runs containment."
+                "3) Open http://192.168.50.254:8080/ — False Positive / Benign / "
+                "Informational / Duplicate skip repeats; Confirmed Compromise does not. "
+                "None run containment."
             ),
         }
         report["cases_opened"].append(case_info)

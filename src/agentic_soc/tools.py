@@ -135,13 +135,15 @@ class SocTools:
         self,
         case_id: int,
         *,
-        approved: bool,
+        disposition: Optional[str] = None,
+        approved: Optional[bool] = None,
         note: str = "",
         author: str = "human",
     ) -> dict[str, Any]:
-        """Approve or reject a proposed action (no auto-containment)."""
+        """Record an analyst closing outcome (no auto-containment)."""
         return self.cases.resolve_proposal(
             case_id,
+            disposition=disposition,
             approved=approved,
             note=note,
             author=author,
@@ -151,13 +153,15 @@ class SocTools:
         self,
         case_ids: list[int],
         *,
-        approved: bool,
+        disposition: Optional[str] = None,
+        approved: Optional[bool] = None,
         note: str = "",
         author: str = "human",
     ) -> dict[str, Any]:
-        """Bulk Approve / Reject (no auto-containment)."""
+        """Bulk close with an analyst outcome (no auto-containment)."""
         return self.cases.resolve_proposals(
             case_ids,
+            disposition=disposition,
             approved=approved,
             note=note,
             author=author,

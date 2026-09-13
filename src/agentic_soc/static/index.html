@@ -315,18 +315,23 @@
     }
 
     .badge.status-open, .badge.status-pending { border-color: var(--info); color: #9bb8f0; }
-    .badge.status-approved { border-color: var(--accent); color: #8fd4b0; }
+    .badge.status-approved, .badge.status-confirmed_compromise { border-color: var(--danger); color: #f0a8a8; }
     .badge.status-auto_closed { border-color: #7a8aa0; color: #b8c4d6; }
-    .badge.status-rejected { border-color: var(--danger); color: #e0a0a0; }
+    .badge.status-rejected, .badge.status-false_positive { border-color: var(--muted); color: var(--muted); }
+    .badge.status-benign { border-color: var(--accent); color: #8fd4b0; }
+    .badge.status-informational { border-color: var(--info); color: #9bb8f0; }
+    .badge.status-duplicate { border-color: #7a8aa0; color: #b8c4d6; }
 
     .badge.sev-critical, .badge.sev-high { border-color: var(--danger); color: #f0a8a8; }
     .badge.sev-medium { border-color: var(--warn); color: #e8d48b; }
     .badge.sev-low, .badge.sev-info { border-color: var(--muted); color: var(--muted); }
 
-    .badge.disp-true_positive { border-color: var(--danger); color: #f0a8a8; }
+    .badge.disp-true_positive, .badge.disp-confirmed_compromise { border-color: var(--danger); color: #f0a8a8; }
     .badge.disp-suspicious { border-color: var(--warn); color: #e8d48b; }
     .badge.disp-false_positive { border-color: var(--muted); color: var(--muted); }
     .badge.disp-informational { border-color: var(--info); color: #9bb8f0; }
+    .badge.disp-benign { border-color: var(--accent); color: #8fd4b0; }
+    .badge.disp-duplicate { border-color: #7a8aa0; color: #b8c4d6; }
 
     .detail { padding: 1rem; }
     .detail.empty {
@@ -468,14 +473,15 @@
     </header>
 
     <div class="lab-banner" id="lab-banner">
-      Lab mode: <strong>Approve</strong> and <strong>Reject</strong> only record the
-      analyst decision (case status + note). Containment is never executed from this UI.
+      Lab mode: analyst outcomes only record the decision (case status + note).
+      Containment is never executed from this UI.
+      <strong>False Positive</strong>, <strong>Benign</strong>,
+      <strong>Informational</strong>, and <strong>Duplicate</strong> skip the same
+      rule_id + source IP for 14 days. <strong>Confirmed Compromise</strong> does not skip.
       Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
-      are OR'd in without lowering that floor. A reject on the same rule_id +
-      source IP skips repeats. Informational / false-positive cases may
-      auto-close without Discord. UFW deny is a dry-run plan unless
-      CONTAINMENT_ENABLED is on (still a separate HITL click — Approve does not
-      block). Containment stays off by default.
+      are OR'd in without lowering that floor. Informational / false-positive
+      cases may auto-close without Discord. UFW deny is a dry-run plan unless
+      CONTAINMENT_ENABLED is on (still a separate HITL click). Containment stays off by default.
     </div>
     <div class="instance-banner mac-local" id="instance-banner">
       Identifying cases database…
@@ -489,9 +495,14 @@
             <select id="status-filter" aria-label="Filter by status">
               <option value="">All</option>
               <option value="open">Open / pending</option>
-              <option value="approved">Approved</option>
+              <option value="confirmed_compromise">Confirmed compromise</option>
+              <option value="false_positive">False positive</option>
+              <option value="benign">Benign</option>
+              <option value="informational">Informational</option>
+              <option value="duplicate">Duplicate</option>
               <option value="auto_closed">Auto-closed noise</option>
-              <option value="rejected">Rejected</option>
+              <option value="approved">Approved (legacy)</option>
+              <option value="rejected">Rejected (legacy)</option>
             </select>
             <label class="refresh-toggle">
               <input type="checkbox" id="auto-refresh" checked />
@@ -507,8 +518,14 @@
           </label>
           <span class="status-line" id="bulk-count">0 selected</span>
           <input type="text" id="bulk-note" placeholder="Bulk note (optional)" aria-label="Bulk decision note" />
-          <button type="button" class="primary" id="btn-bulk-approve" disabled>Approve selected</button>
-          <button type="button" class="danger" id="btn-bulk-reject" disabled>Reject selected</button>
+          <select id="bulk-disposition" aria-label="Bulk analyst outcome">
+            <option value="false_positive">False Positive</option>
+            <option value="benign">Benign</option>
+            <option value="informational">Informational</option>
+            <option value="duplicate">Duplicate</option>
+            <option value="confirmed_compromise">Confirmed Compromise</option>
+          </select>
+          <button type="button" class="primary" id="btn-bulk-apply" disabled>Apply to selected</button>
         </div>
         <div id="case-list" class="case-list">
           <div class="detail empty">Loading cases…</div>
@@ -530,7 +547,43 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script>
-    const REFRESH_MS = 15000;
+    const ANALYST_OUTCOMES = [
+      {
+        id: "false_positive",
+        label: "False Positive",
+        skip: true,
+        cls: "ghost",
+        text: "The detector was wrong for this alert (wrong rule, self-ingest, CIS scored as attack, queue-full treated as intrusion). No incident. Skips repeats.",
+      },
+      {
+        id: "benign",
+        label: "Benign",
+        skip: true,
+        cls: "ghost",
+        text: "The event is real and the rule fired correctly, but activity is authorized or expected (lab nmap, known hydra replay, admin typo). Skips repeats.",
+      },
+      {
+        id: "informational",
+        label: "Informational",
+        skip: true,
+        cls: "ghost",
+        text: "Awareness only; no investigation. Matches auto-close of SCA / routine agent events. Skips repeats.",
+      },
+      {
+        id: "duplicate",
+        label: "Duplicate",
+        skip: true,
+        cls: "ghost",
+        text: "Same incident already triaged on another case. Distinct from false positive so metrics stay honest. Skips repeats.",
+      },
+      {
+        id: "confirmed_compromise",
+        label: "Confirmed Compromise",
+        skip: false,
+        cls: "danger",
+        text: "Malicious or lab-as-adversary activity treated as a true incident. Does not skip repeats. Does not execute containment.",
+      },
+    ];
     let selectedId = null;
     let selectedIds = new Set();
     let listedCases = [];
@@ -686,10 +739,8 @@
       const n = selectedIds.size;
       const count = $("bulk-count");
       if (count) count.textContent = n + " selected";
-      const approve = $("btn-bulk-approve");
-      const reject = $("btn-bulk-reject");
-      if (approve) approve.disabled = n === 0;
-      if (reject) reject.disabled = n === 0;
+      const apply = $("btn-bulk-apply");
+      if (apply) apply.disabled = n === 0;
       const selectAll = $("select-all");
       if (selectAll) {
         const ids = listedCases.map((c) => c.id);
@@ -710,24 +761,23 @@
       syncBulkUi();
     }
 
-    async function bulkDecide(approved) {
+    async function bulkDecide() {
       const ids = [...selectedIds];
       if (!ids.length) {
         toast("Select at least one case", "error");
         return;
       }
       const note = ($("bulk-note") && $("bulk-note").value.trim()) || "";
-      const approveBtn = $("btn-bulk-approve");
-      const rejectBtn = $("btn-bulk-reject");
-      if (approveBtn) approveBtn.disabled = true;
-      if (rejectBtn) rejectBtn.disabled = true;
+      const disposition = ($("bulk-disposition") && $("bulk-disposition").value) || "false_positive";
+      const applyBtn = $("btn-bulk-apply");
+      if (applyBtn) applyBtn.disabled = true;
       try {
         const result = await api("/tools/approve_cases", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             case_ids: ids,
-            approved,
+            disposition,
             note,
             author: "dashboard",
           }),
@@ -735,9 +785,8 @@
         const n = result.count || 0;
         const skipped = (result.skipped || []).length;
         const errors = (result.errors || []).length;
-        const verb = approved ? "Approved" : "Rejected";
         toast(
-          verb + " " + n + " case(s) (record only, no containment)"
+          "Closed " + n + " as " + disposition + " (record only, no containment)"
             + (skipped ? "; skipped " + skipped + " not-open" : "")
             + (errors ? "; " + errors + " error(s)" : "") + ".",
           errors ? "error" : "ok",
@@ -855,7 +904,7 @@
           <div class="section containment-panel">
             <h3>Containment plan (dry-run)</h3>
             <p class="status-line">
-              Approve / Reject never run UFW. A deny-from-source plan can be recorded here.
+              Approve / outcomes never run UFW. A deny-from-source plan can be recorded here.
               Execute stays off unless <code>CONTAINMENT_ENABLED=true</code> on this host
               (still a separate click, never automatic). Protected: Pop host 192.168.50.254.
             </p>
@@ -883,39 +932,28 @@
           <div class="section">
             <h3>Analyst decision</h3>
             <div class="decision-legend">
+              ${ANALYST_OUTCOMES.map((o) => `
               <article>
-                <h4 class="approve-label">Approve records</h4>
-                <p>
-                  You accept the triage (disposition + recommended action) as the
-                  investigation outcome. Status becomes <code>approved</code> and
-                  your note is stored. <strong>No firewall, isolation, or other
-                  containment is executed.</strong>
-                </p>
-              </article>
-              <article>
-                <h4 class="reject-label">Reject records</h4>
-                <p>
-                  You treat this as noise, a duplicate, or a wrong proposal.
-                  Status becomes <code>rejected</code> and your note is stored.
-                  <strong>Also does not execute containment.</strong>
-                </p>
-              </article>
+                <h4>${escapeHtml(o.label)}${o.skip ? "" : " (no skip)"}</h4>
+                <p>${escapeHtml(o.text)} <strong>No firewall, isolation, or other containment is executed.</strong></p>
+              </article>`).join("")}
             </div>
-            <label for="decision-note" class="status-line">Note (optional) — why you approved or rejected</label>
+            <label for="decision-note" class="status-line">Note (optional) — why you closed this case</label>
             <textarea id="decision-note" placeholder="e.g. Confirmed lab nmap from Kali; document only"></textarea>
             <div class="actions">
-              <button type="button" class="primary" id="btn-approve">Approve (record accept)</button>
-              <button type="button" class="danger" id="btn-reject">Reject (record noise)</button>
+              ${ANALYST_OUTCOMES.map((o) => `
+              <button type="button" class="${o.cls}" data-disposition="${o.id}">${escapeHtml(o.label)}</button>`).join("")}
             </div>
             <p class="status-line" style="margin-top:0.5rem">
-              Same path as <code>approve_case.py</code> — writes status + an audit note only.
+              Same path as <code>approve_case.py --disposition …</code> — writes status + an audit note only.
             </p>
           </div>` : `
           <div class="section">
             <h3>Analyst decision</h3>
             <p class="status-line">
-              This case is already <code>${escapeHtml(c.status || "")}</code>.
-              Approve / Reject applies to open cases only. Containment was never executed.
+              This case is already <code>${escapeHtml(c.status || "")}</code>
+              ${c.analyst_disposition ? `(analyst: <code>${escapeHtml(c.analyst_disposition)}</code>)` : ""}.
+              Closing outcomes apply to open cases only. Containment was never executed.
             </p>
           </div>`;
 
@@ -926,6 +964,7 @@
             ${badge(statusClass(c.status), c.status)}
             ${badge(sevClass(c.severity), c.severity)}
             ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
+            ${c.analyst_disposition ? badge(dispClass(c.analyst_disposition), "analyst:" + c.analyst_disposition) : ""}
           </div>
           <dl class="kv">
             <dt>Agent</dt><dd>${escapeHtml(c.agent_name || "—")}</dd>
@@ -960,10 +999,9 @@
           </div>
         `;
 
-        const approveBtn = $("btn-approve");
-        const rejectBtn = $("btn-reject");
-        if (approveBtn) approveBtn.onclick = () => decide(caseId, true);
-        if (rejectBtn) rejectBtn.onclick = () => decide(caseId, false);
+        $("detail").querySelectorAll("[data-disposition]").forEach((btn) => {
+          btn.addEventListener("click", () => decide(caseId, btn.dataset.disposition));
+        });
         const planBtn = $("btn-plan-containment");
         const execBtn = $("btn-exec-containment");
         if (planBtn) planBtn.onclick = () => recordContainmentPlan(caseId);
@@ -1009,7 +1047,7 @@
       }
       const ok = window.confirm(
         "Run sudo ufw deny from " + (sourceIp || "this source") +
-          " on this host? Approve/Reject will not do this. Only continue if you intend a lab firewall change.",
+            " on this host? Analyst outcomes will not do this. Only continue if you intend a lab firewall change.",
       );
       if (!ok) return;
       try {
@@ -1034,20 +1072,15 @@
       }
     }
 
-    async function decide(caseId, approved) {
+    async function decide(caseId, disposition) {
       const note = ($("decision-note") && $("decision-note").value) || "";
       try {
         await api("/tools/approve_case/" + caseId, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ approved, note, author: "dashboard" }),
+          body: JSON.stringify({ disposition, note, author: "dashboard" }),
         });
-        toast(
-          approved
-            ? "Recorded Approve: accepted triage (no containment)."
-            : "Recorded Reject: noise / declined proposal (no containment).",
-          "ok",
-        );
+        toast("Recorded " + disposition + " (no containment).", "ok");
         await loadCases();
         await loadCaseDetail(caseId, false);
       } catch (e) {
@@ -1087,8 +1120,7 @@
     $("btn-refresh").addEventListener("click", loadCases);
     $("auto-refresh").addEventListener("change", scheduleRefresh);
     $("select-all").addEventListener("change", (ev) => toggleSelectAll(ev.target.checked));
-    $("btn-bulk-approve").addEventListener("click", () => bulkDecide(true));
-    $("btn-bulk-reject").addEventListener("click", () => bulkDecide(false));
+    $("btn-bulk-apply").addEventListener("click", () => bulkDecide());
 
     loadConfig().then(() => {
       loadCases();

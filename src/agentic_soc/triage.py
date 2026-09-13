@@ -52,6 +52,28 @@ RULE_PORT_SCAN_MULTI = "100101"
 RULE_PORT_SCAN_LAB = "100102"
 PORT_SCAN_AGGREGATE_RULES = frozenset({RULE_PORT_SCAN_MULTI, RULE_PORT_SCAN_LAB})
 
+# ASUS RT-AX3000 remote syslog (UDP 514) — see deploy/wazuh/
+RULE_ASUS_SYSLOG = "100200"
+RULE_ASUS_WEB_LOGIN_OK = "100201"
+RULE_ASUS_WEB_LOGIN_FAIL = "100202"
+RULE_ASUS_KERNEL_DROP = "100203"
+ROUTER_NOISE_RULE_IDS = frozenset(
+    {RULE_ASUS_SYSLOG, RULE_ASUS_WEB_LOGIN_OK, RULE_ASUS_KERNEL_DROP}
+)
+_ROUTER_NOISE_PATTERNS = (
+    "bwdpi:",
+    "hour monitor:",
+    "rc_service:",
+    "registered dns req parsing",
+    "udb core version",
+    "shm release version",
+    "klogd started",
+    "fun bitmap",
+    "sizeof forward pkt param",
+    "force to flush flowcache",
+    "kernel: drop in=",
+)
+
 # Common Wazuh sshd/PAM auth-failure rule ids (often level 5)
 AUTH_FAILURE_RULE_IDS = frozenset({"5710", "5712", "5716", "5720", "5503", "5551"})
 AUTH_FAILURE_GROUPS = frozenset({"authentication_failed", "authentication_failures"})
@@ -80,6 +102,7 @@ _AGENT_CAPACITY_PATTERNS = (
 _SELF_INGEST_PATTERNS = (
     "autonomy_loop",
     "agentic_soc.cursor_agent",
+    "agentic_soc",
     "opened case #",
     "cursor cloud investigation",
 )
@@ -222,6 +245,30 @@ def extract_iocs(alert: dict[str, Any], *, include_private_ips: bool = False) ->
                 add(m)
 
     return list(found.values())
+
+
+def is_router_web_login_failure(alert: dict[str, Any]) -> bool:
+    rid = _rule_id(alert)
+    if rid == RULE_ASUS_WEB_LOGIN_FAIL:
+        return True
+    blob = f"{_description(alert)} {(alert.get('full_log') or '')}".lower()
+    return "httpd:" in blob and "[login]" in blob and any(
+        p in blob for p in ("fail", "incorrect", "invalid", "denied")
+    )
+
+
+def is_router_noise(alert: dict[str, Any]) -> bool:
+    """ASUS RT-AX3000 syslog: DHCP/Wi-Fi/BWDPI/IGMP DROPs — not HITL."""
+    if is_router_web_login_failure(alert):
+        return False
+    rid = _rule_id(alert)
+    if rid in ROUTER_NOISE_RULE_IDS:
+        return True
+    groups = _rule_groups(alert)
+    if "asus" in groups and rid != RULE_ASUS_WEB_LOGIN_FAIL:
+        return True
+    blob = f"{_description(alert)} {(alert.get('full_log') or '')}".lower()
+    return any(p in blob for p in _ROUTER_NOISE_PATTERNS)
 
 
 def is_compliance_noise(alert: dict[str, Any]) -> bool:
@@ -379,6 +426,13 @@ def should_open_case(
             "cluster_size": None,
         }
 
+    if is_router_noise(alert):
+        return {
+            "open": False,
+            "reason": "router_syslog_noise",
+            "cluster_size": None,
+        }
+
     # Prefer aggregate rules; demote raw UFW BLOCK floods
     if is_lone_ufw_block(alert) and not is_port_scan_aggregate(alert):
         cluster = ufw_block_cluster_size(alert, sibling_alerts)
@@ -476,6 +530,32 @@ def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]
             "confidence": confidence,
             "severity": severity,
             "score": round(max(score, 0.0), 2),
+            "reasons": reasons,
+            "recommended_action": action,
+        }
+
+    if is_router_web_login_failure(alert):
+        reasons.append("ASUS web admin login failure")
+        disposition = "suspicious"
+        action = _recommend_action(disposition, level_i, 0)
+        return {
+            "disposition": disposition,
+            "confidence": 0.7,
+            "severity": _severity_from(level_i, disposition),
+            "score": round(score + 3, 2),
+            "reasons": reasons,
+            "recommended_action": action,
+        }
+
+    if is_router_noise(alert):
+        reasons.append("ASUS RT-AX3000 syslog (DHCP/Wi-Fi/BWDPI/IGMP) — informational")
+        disposition = "informational"
+        action = _recommend_action(disposition, level_i, 0)
+        return {
+            "disposition": disposition,
+            "confidence": 0.85,
+            "severity": "low",
+            "score": 0.0,
             "reasons": reasons,
             "recommended_action": action,
         }

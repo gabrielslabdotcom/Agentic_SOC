@@ -7,6 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from agentic_soc.analyst_outcomes import (
+    INFORMATIONAL,
+    coerce_analyst_disposition,
+    feedback_approved_int,
+    skips_repeats,
+)
+
 ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
 # host is stored for inventory, but case-to-case expansion ignores it so every
 # alert on pop-os-native does not show up as "related".
@@ -48,6 +55,7 @@ class CaseStore:
                     agent_name TEXT,
                     summary TEXT,
                     disposition TEXT,
+                    analyst_disposition TEXT,
                     recommended_action TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -141,6 +149,8 @@ class CaseStore:
             conn.execute("ALTER TABLE cases ADD COLUMN rule_id TEXT")
         if "source_ip" not in cols:
             conn.execute("ALTER TABLE cases ADD COLUMN source_ip TEXT")
+        if "analyst_disposition" not in cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN analyst_disposition TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS triage_feedback (
@@ -150,6 +160,7 @@ class CaseStore:
                 rule_id TEXT,
                 source_ip TEXT,
                 disposition TEXT,
+                analyst_disposition TEXT,
                 approved INTEGER NOT NULL,
                 note TEXT,
                 created_at TEXT NOT NULL,
@@ -157,6 +168,9 @@ class CaseStore:
             )
             """
         )
+        fb_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(triage_feedback)")}
+        if "analyst_disposition" not in fb_cols:
+            conn.execute("ALTER TABLE triage_feedback ADD COLUMN analyst_disposition TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_triage_feedback_rule_ip
@@ -231,6 +245,7 @@ class CaseStore:
         disposition: Optional[str] = None,
         summary: Optional[str] = None,
         recommended_action: Optional[str] = None,
+        analyst_disposition: Optional[str] = None,
         note: Optional[str] = None,
         author: str = "agent",
     ) -> dict[str, Any]:
@@ -242,6 +257,9 @@ class CaseStore:
         if disposition is not None:
             fields.append("disposition = ?")
             values.append(disposition)
+        if analyst_disposition is not None:
+            fields.append("analyst_disposition = ?")
+            values.append(analyst_disposition)
         if summary is not None:
             fields.append("summary = ?")
             values.append(summary)
@@ -321,37 +339,52 @@ class CaseStore:
         self,
         case_id: int,
         *,
-        approved: bool,
+        disposition: Optional[str] = None,
+        approved: Optional[bool] = None,
         note: str = "",
         author: str = "human",
     ) -> dict[str, Any]:
         """
-        Record human approval/rejection of a proposed action.
+        Record a human closing outcome for a proposed action.
 
         Lab-safe: never executes containment. Updates status + notes only.
+        ``approved`` is a deprecated alias (true→confirmed_compromise,
+        false→false_positive).
         """
         case = self.get_case(case_id)
         if case.get("error"):
             return case
+        try:
+            outcome = coerce_analyst_disposition(
+                disposition=disposition, approved=approved
+            )
+        except ValueError as exc:
+            return {"error": str(exc), "id": case_id}
 
-        decision = "APPROVED" if approved else "REJECTED"
-        status = "approved" if approved else "rejected"
+        skip = skips_repeats(outcome)
         proposed = case.get("recommended_action") or "(none)"
-        detail = note.strip() or ("human approved proposal" if approved else "human rejected proposal")
+        detail = note.strip() or f"human closed as {outcome}"
         audit = (
-            f"[human_approval] {decision}\n"
+            f"[human_approval] {outcome.upper()}\n"
+            f"analyst_disposition={outcome}\n"
             f"proposed_action={proposed}\n"
             f"note={detail}\n"
+            f"skip_repeats={'true' if skip else 'false'}\n"
             f"containment=not_executed"
         )
         updated = self.update_case(
             case_id,
-            status=status,
+            status=outcome,
+            analyst_disposition=outcome,
             note=audit,
             author=author,
         )
         try:
-            self.record_feedback(case_id, approved=approved, note=detail)
+            self.record_feedback(
+                case_id,
+                analyst_disposition=outcome,
+                note=detail,
+            )
         except Exception:
             LOG.warning("failed to record triage feedback for case %s", case_id, exc_info=True)
         return updated
@@ -360,11 +393,25 @@ class CaseStore:
         self,
         case_ids: list[int],
         *,
-        approved: bool,
+        disposition: Optional[str] = None,
+        approved: Optional[bool] = None,
         note: str = "",
         author: str = "human",
     ) -> dict[str, Any]:
-        """Bulk Approve / Reject. Record-only; never containment."""
+        """Bulk close with an analyst outcome. Record-only; never containment."""
+        try:
+            outcome = coerce_analyst_disposition(
+                disposition=disposition, approved=approved
+            )
+        except ValueError as exc:
+            return {
+                "updated": [],
+                "skipped": [],
+                "errors": [{"error": str(exc)}],
+                "count": 0,
+                "analyst_disposition": None,
+                "containment_executed": False,
+            }
         updated: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -388,20 +435,27 @@ class CaseStore:
                 continue
             result = self.resolve_proposal(
                 cid,
-                approved=approved,
+                disposition=outcome,
                 note=note,
                 author=author,
             )
             if result.get("error"):
                 errors.append({"id": cid, "error": result.get("error")})
             else:
-                updated.append({"id": cid, "status": result.get("status")})
+                updated.append(
+                    {
+                        "id": cid,
+                        "status": result.get("status"),
+                        "analyst_disposition": result.get("analyst_disposition"),
+                    }
+                )
         return {
             "updated": updated,
             "skipped": skipped,
             "errors": errors,
             "count": len(updated),
-            "approved": approved,
+            "analyst_disposition": outcome,
+            "skip_repeats": skips_repeats(outcome),
             "containment_executed": False,
         }
 
@@ -436,7 +490,11 @@ class CaseStore:
             author=author,
         )
         try:
-            self.record_feedback(case_id, approved=False, note=detail)
+            self.record_feedback(
+                case_id,
+                analyst_disposition=INFORMATIONAL,
+                note=detail,
+            )
         except Exception:
             LOG.warning("failed to record triage feedback for auto-closed case %s", case_id, exc_info=True)
         return updated
@@ -445,21 +503,26 @@ class CaseStore:
         self,
         case_id: int,
         *,
-        approved: bool,
+        analyst_disposition: Optional[str] = None,
+        approved: Optional[bool] = None,
         note: str = "",
     ) -> dict[str, Any]:
-        """Store a human decision for later skip/eval (no containment)."""
+        """Store a human (or auto-close) decision for later skip/eval."""
         case = self.get_case(case_id)
         if case.get("error"):
             return case
+        outcome = coerce_analyst_disposition(
+            disposition=analyst_disposition, approved=approved
+        )
+        approved_n = feedback_approved_int(outcome)
         now = self._now()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO triage_feedback (
                     case_id, alert_id, rule_id, source_ip, disposition,
-                    approved, note, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    analyst_disposition, approved, note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     case_id,
@@ -467,12 +530,18 @@ class CaseStore:
                     case.get("rule_id"),
                     case.get("source_ip"),
                     case.get("disposition"),
-                    1 if approved else 0,
+                    outcome,
+                    approved_n,
                     note,
                     now,
                 ),
             )
-        return {"ok": True, "case_id": case_id, "approved": approved}
+        return {
+            "ok": True,
+            "case_id": case_id,
+            "approved": bool(approved_n),
+            "analyst_disposition": outcome,
+        }
 
     def rejected_similar(
         self,
@@ -481,7 +550,7 @@ class CaseStore:
         source_ip: Optional[str] = None,
         days: int = 14,
     ) -> dict[str, Any]:
-        """True when the same rule_id + source_ip was rejected recently."""
+        """True when the same rule_id + source_ip was skip-closed recently."""
         rid = (rule_id or "").strip()
         sip = (source_ip or "").strip()
         if not rid or not sip:
@@ -492,9 +561,17 @@ class CaseStore:
             rows = conn.execute(
                 """
                 SELECT created_at FROM triage_feedback
-                WHERE approved = 0
-                  AND rule_id = ?
+                WHERE rule_id = ?
                   AND source_ip = ?
+                  AND (
+                    analyst_disposition IN (
+                      'false_positive', 'benign', 'informational', 'duplicate'
+                    )
+                    OR (
+                      (analyst_disposition IS NULL OR analyst_disposition = '')
+                      AND approved = 0
+                    )
+                  )
                 """,
                 (rid, sip),
             ).fetchall()
@@ -521,7 +598,7 @@ class CaseStore:
             rows = conn.execute(
                 """
                 SELECT id, case_id, alert_id, rule_id, source_ip, disposition,
-                       approved, note, created_at
+                       analyst_disposition, approved, note, created_at
                 FROM triage_feedback
                 ORDER BY id DESC
                 LIMIT ?

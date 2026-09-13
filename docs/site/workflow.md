@@ -2,7 +2,7 @@
 
 Operator detail: [SETUP_GUIDE.md §8.1, §11](../SETUP_GUIDE.md).
 
-**Generate → wait for indexer → triage / autonomy → review Discord → Approve or Reject at http://192.168.50.254:8080/.**
+**Generate → wait for indexer → triage / autonomy → review Discord → record an analyst outcome at http://192.168.50.254:8080/.**
 
 ## Generate lab events
 
@@ -36,10 +36,10 @@ Live autonomy on Pop already does this on an interval.
 ## Review
 
 - Discord embed (case opened, then investigation note ready)
-- http://192.168.50.254:8080/ — bulk Approve / Reject, related cases, Cursor note, containment **plan**
+- http://192.168.50.254:8080/ — bulk close dropdown, related cases, Cursor note, containment **plan**
 
-**Approve** = accept triage (document only). **Reject** = noise / wrong proposal. Neither runs UFW. Reject on the same `rule_id` + source IP skips repeats (~14 days).
+**False Positive / Benign / Informational / Duplicate** skip the same `rule_id` + source IP (~14 days). **Confirmed Compromise** does not skip. None run UFW.
 
-CLI: `python scripts/approve_case.py --case-id N --approve|--reject --note "..."`.
+CLI: `python scripts/approve_case.py --case-id N --disposition benign --note "..."`.
 
 Next: [Triage quality](triage-quality.md) and [Cursor cloud](cursor-cloud.md).

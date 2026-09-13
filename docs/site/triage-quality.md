@@ -14,7 +14,7 @@ Floors live in the fixture JSON (disposition ~80%, open-case ~85%). Heuristics: 
 
 ## Human feedback (skip keys)
 
-Approve / Reject write `triage_feedback`. A **Reject** on the same `rule_id` + source IP skips opening repeats for 14 days (not a global rule demotion).
+Approve / Reject write `triage_feedback`. A **False Positive / Benign / Informational / Duplicate** on the same `rule_id` + source IP skips opening repeats for 14 days (not a global rule demotion). **Confirmed Compromise** does not skip.
 
 ```bash
 # Against the cases DB in CASES_DB_PATH (use Pop's path over SSH for live keys)

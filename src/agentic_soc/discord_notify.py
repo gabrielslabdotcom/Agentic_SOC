@@ -106,28 +106,23 @@ class DiscordNotifier:
         if snippet:
             snippet = " ".join(snippet.split())
 
-        approve_cmd = (
-            f"python scripts/approve_case.py --case-id {case_id} --approve "
-            f'--note "reviewed from Discord"'
-        )
-        reject_cmd = (
-            f"python scripts/approve_case.py --case-id {case_id} --reject "
-            f'--note "noise / not actionable"'
+        close_cmd = (
+            f"python scripts/approve_case.py --case-id {case_id} "
+            f"--disposition benign --note \"reviewed from Discord\""
         )
         next_steps = case.get("analyst_next_steps") or (
             "1) Confirm alert in Wazuh dashboard\n"
             "2) Review IOCs / full_log below\n"
-            "3) Open http://192.168.50.254:8080/ and record Approve or Reject "
+            "3) Open http://192.168.50.254:8080/ and record an analyst outcome "
             "(see labels) — no containment runs"
         )
         decision_legend = (
-            "**Approve** records that you accept the triage "
-            "(disposition + recommended action) as the investigation outcome. "
-            "Case status becomes `approved`; a note is stored. "
-            "**No firewall, isolation, or other containment is executed.**\n"
-            "**Reject** records that this is noise, a duplicate, or the proposal is wrong. "
-            "Case status becomes `rejected`; a note is stored. "
-            "**Also does not execute containment.**"
+            "**False Positive** — detector was wrong. Skips repeats.\n"
+            "**Benign** — real event, authorized/expected (lab nmap). Skips repeats.\n"
+            "**Informational** — awareness only. Skips repeats.\n"
+            "**Duplicate** — already triaged. Skips repeats.\n"
+            "**Confirmed Compromise** — true incident. Does **not** skip. "
+            "**None of these execute containment.**"
         )
 
         fields = [
@@ -147,18 +142,11 @@ class DiscordNotifier:
                 inline=False,
             ),
             _field("Analyst next steps", next_steps, inline=False, limit=900),
-            _field("What Approve / Reject records", decision_legend, inline=False, limit=1024),
+            _field("Analyst outcomes", decision_legend, inline=False, limit=1024),
             _field(
-                "Approve (CLI)",
-                "Accept triage & document — status=`approved`, note only.\n"
-                f"`{approve_cmd}`",
-                inline=False,
-                limit=900,
-            ),
-            _field(
-                "Reject (CLI)",
-                "Mark noise / decline proposal — status=`rejected`, note only.\n"
-                f"`{reject_cmd}`",
+                "Close (CLI)",
+                "Record-only — status = outcome slug, note only.\n"
+                f"`{close_cmd}`",
                 inline=False,
                 limit=900,
             ),
@@ -176,7 +164,7 @@ class DiscordNotifier:
             },
         }
         return await self.send_raw(
-            content="**Pending human approval** — review context below, then approve/reject.",
+            content="**Pending human review** — record an analyst outcome (no containment).",
             embeds=[embed],
         )
 
@@ -208,7 +196,8 @@ class DiscordNotifier:
                 _field(
                     "Next",
                     "Open http://192.168.50.254:8080/, read the Cursor "
-                    "investigation section, then Approve / Reject (record-only — "
+                    "investigation section, then record False Positive / Benign / "
+                    "Informational / Duplicate / Confirmed Compromise (record-only — "
                     "no containment).",
                     inline=False,
                     limit=500,
@@ -219,7 +208,7 @@ class DiscordNotifier:
             },
         }
         return await self.send_raw(
-            content=f"**Cursor investigation landed on case #{case_id}** — still needs human Approve / Reject.",
+            content=f"**Cursor investigation landed on case #{case_id}** — still needs a human closing outcome.",
             embeds=[embed],
         )
 

@@ -1,0 +1,28 @@
+<!-- UFW BLOCK under kernel (Pop native agent) -->
+<decoder name="ufw_block">
+  <parent>kernel</parent>
+  <prematch>[UFW BLOCK]</prematch>
+  <regex>SRC=(\S+) DST=(\S+) \.+ PROTO=(\w+) \.+ DPT=(\d+)</regex>
+  <order>srcip,dstip,protocol,dstport</order>
+</decoder>
+
+<!--
+  ASUS RT-AX3000 remote syslog omits a hostname, so Wazuh pre-decodes
+  HTTPD:/kernel:/BWDPI: as program_name. Match the leftover message body.
+-->
+<decoder name="asus-httpd">
+  <program_name>^HTTPD$</program_name>
+</decoder>
+
+<decoder name="asus-httpd-login">
+  <parent>asus-httpd</parent>
+  <regex type="pcre2">\[LOGIN\] \[(\S+)\]\[(\S+)\] (\w+) \((\d+\.\d+\.\d+\.\d+)\)</regex>
+  <order>protocol, extra_data, status, srcip</order>
+</decoder>
+
+<decoder name="asus-kernel-drop">
+  <parent>kernel</parent>
+  <prematch>^DROP IN=</prematch>
+  <regex type="pcre2">DROP IN=(\S+).*SRC=(\S+) DST=(\S+)</regex>
+  <order>dstif, srcip, dstip</order>
+</decoder>

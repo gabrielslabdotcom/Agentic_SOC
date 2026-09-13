@@ -42,7 +42,9 @@ def summarize(store: CaseStore, *, limit: int = 50) -> dict[str, Any]:
     skip_keys: dict[tuple[str, str], int] = defaultdict(int)
     for row in summary.get("items") or []:
         if row.get("approved"):
-            continue
+            ad = str(row.get("analyst_disposition") or "")
+            if ad == "confirmed_compromise" or not ad:
+                continue
         rid = str(row.get("rule_id") or "").strip()
         sip = str(row.get("source_ip") or "").strip()
         if rid and sip:
@@ -83,7 +85,7 @@ def main() -> int:
         )
     print("recent:")
     for row in report.get("items") or []:
-        decision = "APPROVE" if row.get("approved") else "REJECT"
+        decision = str(row.get("analyst_disposition") or ("APPROVE" if row.get("approved") else "REJECT"))
         print(
             f"  [{decision}] case={row.get('case_id')} rule={row.get('rule_id')} "
             f"src={row.get('source_ip')} disp={row.get('disposition')} "

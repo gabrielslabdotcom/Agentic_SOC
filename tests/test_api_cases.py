@@ -52,9 +52,10 @@ def test_get_case_and_approve(client: TestClient) -> None:
     )
     assert approved.status_code == 200
     result = approved.json()
-    assert result["status"] == "approved"
+    assert result["status"] == "confirmed_compromise"
+    assert result["analyst_disposition"] == "confirmed_compromise"
     notes = " ".join(n["note"] for n in result.get("notes") or [])
-    assert "APPROVED" in notes
+    assert "CONFIRMED_COMPROMISE" in notes
     assert "containment=not_executed" in notes
     assert "confirmed lab scan" in notes
 
@@ -71,9 +72,9 @@ def test_reject_case(client: TestClient) -> None:
         json={"approved": False, "note": "duplicate noise"},
     )
     assert rejected.status_code == 200
-    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["status"] == "false_positive"
 
-    listed = client.get("/tools/list_cases?status=rejected")
+    listed = client.get("/tools/list_cases?status=false_positive")
     assert listed.status_code == 200
     ids = [c["id"] for c in listed.json()["cases"]]
     assert case_id in ids
@@ -107,7 +108,9 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     assert "rule_id" in dash.text
     assert "auto-close" in dash.text
     assert "Select all" in dash.text
-    assert "Approve selected" in dash.text
+    assert "Apply to selected" in dash.text
+    assert "False Positive" in dash.text
+    assert "Confirmed Compromise" in dash.text
     assert "Containment plan" in dash.text
 
 
@@ -158,11 +161,11 @@ def test_bulk_approve_open_cases_only(client: TestClient) -> None:
     assert body["containment_executed"] is False
     assert body["count"] == 2
     assert {row["id"] for row in body["updated"]} == {a, b}
-    assert all(row["status"] == "rejected" for row in body["updated"])
+    assert all(row["status"] == "false_positive" for row in body["updated"])
     skipped_ids = {row["id"] for row in body["skipped"]}
     assert done in skipped_ids
-    assert client.get(f"/tools/get_case/{a}").json()["status"] == "rejected"
-    assert client.get(f"/tools/get_case/{done}").json()["status"] == "approved"
+    assert client.get(f"/tools/get_case/{a}").json()["status"] == "false_positive"
+    assert client.get(f"/tools/get_case/{done}").json()["status"] == "confirmed_compromise"
 
 
 def test_containment_plan_and_disabled_execute(client: TestClient) -> None:
@@ -210,3 +213,24 @@ def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "LIVE Pop" in data["banner"]
     assert data["containment_enabled"] is False
     assert "OR" in data["note"] or "auth" in data["note"].lower()
+
+
+def test_disposition_endpoint_and_unknown(client: TestClient) -> None:
+    opened = client.post("/tools/open_case", json={"title": "lab nmap"}).json()["id"]
+    ok = client.post(
+        f"/tools/approve_case/{opened}",
+        json={"disposition": "benign", "note": "generate_portscan_lab.py"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "benign"
+    assert ok.json()["analyst_disposition"] == "benign"
+
+    bad = client.post(
+        "/tools/open_case",
+        json={"title": "other"},
+    ).json()["id"]
+    unknown = client.post(
+        f"/tools/approve_case/{bad}",
+        json={"disposition": "not_a_real_outcome"},
+    )
+    assert unknown.status_code == 422

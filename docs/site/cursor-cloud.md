@@ -28,6 +28,6 @@ ssh soc 'cd /home/admin/Agentic_SOC && source .venv/bin/activate && python scrip
 
 If the Cursor GitHub App cannot see the repo, autonomy logs a validation error and (by default) retries **no-repo** (case JSON only). Grant the App access to `gabrielslabdotcom/Agentic_SOC` to restore clones. Discord/case open still succeeded.
 
-Dashboard: **Cursor investigation** on the case, above Approve / Reject.
+Dashboard: **Cursor investigation** on the case, above analyst outcomes.
 
 Next: [Containment](containment.md) · [Roadmap](roadmap.md).

@@ -1,6 +1,6 @@
 # Overview
 
-Agentic SOC is a **propose-only, human-in-the-loop** lab: Wazuh detects, a local loop triages, Discord pings you, Cursor cloud writes an investigation note, and **you** Approve or Reject. It is not a fully autonomous responder.
+Agentic SOC is a **propose-only, human-in-the-loop** lab: Wazuh detects, a local loop triages, Discord pings you, Cursor cloud writes an investigation note, and **you** record a closing outcome. It is not a fully autonomous responder.
 
 This site is a **GitLab-style instruction set** (one page per section) for the public write-up. The operator bible with lab-only secrets remains [`docs/SETUP_GUIDE.md`](../SETUP_GUIDE.md) in the repo — **do not copy live passwords onto gabrielslab.com**.
 
@@ -30,7 +30,7 @@ Typical lab IPs (replace with yours): SIEM host `192.168.50.254`, SSH alias `soc
 | Auto-close of informational / false-positive noise | Training or fine-tuning an LLM |
 | UFW deny **plans** (dry-run) | Execute UFW unless you opt in |
 
-**Approve / Reject** record status + a note only. They do **not** run firewall rules. Containment is a separate, disabled-by-default click. See [Containment](containment.md).
+**Analyst outcomes** record status + a note only. They do **not** run firewall rules. Containment is a separate, disabled-by-default click. See [Containment](containment.md).
 
 ## Two case databases
 

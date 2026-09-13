@@ -8,7 +8,7 @@ When a HITL case has a source IP, autonomy records a planned command on the case
 sudo -n ufw insert 1 deny from <src> comment agentic-soc-case-N
 ```
 
-Approve / Reject **never** run that command. The dashboard **Containment plan** section can **Record UFW plan**. **Execute UFW deny** stays disabled unless `CONTAINMENT_ENABLED=true` on that host, plus an explicit confirm click.
+Analyst outcomes **never** run that command. The dashboard **Containment plan** section can **Record UFW plan**. **Execute UFW deny** stays disabled unless `CONTAINMENT_ENABLED=true` on that host, plus an explicit confirm click.
 
 ## Safety
 

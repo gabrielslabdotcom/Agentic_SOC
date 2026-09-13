@@ -70,7 +70,7 @@ uvicorn agentic_soc.api:app --reload --port 8080
 # OpenAPI: http://127.0.0.1:8080/docs
 ```
 
-**Approve / Reject** record status + a note only (same as `approve_case.py`). Approve does **not** run UFW. A separate **Containment plan** on the case is a dry-run unless `CONTAINMENT_ENABLED=true` and you click Execute.
+**Analyst outcomes** record status + a note only (same as `approve_case.py`). They do **not** run UFW. A separate **Containment plan** on the case is a dry-run unless `CONTAINMENT_ENABLED=true` and you click Execute.
 
 ## Cursor MCP
 
@@ -89,7 +89,7 @@ Project config is at [`.cursor/mcp.json`](.cursor/mcp.json). In Cursor: **Settin
 | `get_alert` | Fetch one alert by id |
 | `open_case` / `get_case` / `update_case` / `list_cases` | Local SQLite case memory |
 | `propose_action` | Log-only response recommendation (no auto-containment) |
-| `approve_case` | Human approve/reject (status + notes only; no containment) |
+| `approve_case` | Human closing outcome (status + notes only; no containment) |
 | `upsert_entity` / `link_alert_to_entity` / `link_case_to_entity` / `find_related` | SQLite entity correlation (not Neo4j) |
 | `enrich_ioc` | VirusTotal lookup for ip / domain / url / hash |
 
@@ -123,8 +123,8 @@ python scripts/eval_triage.py
 python scripts/eval_feedback.py
 
 # Approve / reject a proposed action (still no auto-containment)
-python scripts/approve_case.py --case-id 1 --approve --note "looks like lab scan"
-python scripts/approve_case.py --case-id 1 --reject --note "noise"
+python scripts/approve_case.py --case-id 1 --disposition benign --note "looks like lab scan"
+python scripts/approve_case.py --case-id 1 --disposition false_positive --note "noise"
 ```
 
 Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/ -q`.
@@ -133,7 +133,7 @@ Fixtures live in `evals/labeled_alerts.json`. Unit checks: `pytest tests/ -q`.
 
 Pop `agentic-soc-autonomy` is running: `AUTONOMY_MIN_LEVEL=8`, `AUTONOMY_INCLUDE_AUTH=true` (auth L5 OR'd in), `AUTONOMY_FEEDBACK_SKIP=true`, `AUTONOMY_AUTO_CLOSE_NOISE=true`, excludes lone UFW `100100`, Discord notifies, `AUTONOMY_CURSOR_AGENT=true`. New **suspicious** cases land in **Pop** `/home/admin/Agentic_SOC/data/cases.sqlite` and stay pending human approval. Informational / FP that still pass the open gate auto-close without Discord.
 
-Auth failures at Wazuh **level 5** are OR'd into the live indexer query (`AUTONOMY_INCLUDE_AUTH`, default on) without lowering `AUTONOMY_MIN_LEVEL` from 8. A human **Reject** on the same `rule_id` + source IP skips repeats for 14 days. Informational / false-positive cases that still pass the open gate may **auto-close** (`AUTONOMY_AUTO_CLOSE_NOISE`) without Discord or Cursor. Suspicious / true-positive stay HITL. Containment is still never executed.
+Auth failures at Wazuh **level 5** are OR'd into the live indexer query (`AUTONOMY_INCLUDE_AUTH`, default on) without lowering `AUTONOMY_MIN_LEVEL` from 8. A human **False Positive / Benign / Informational / Duplicate** on the same `rule_id` + source IP skips repeats for 14 days. **Confirmed Compromise** does not skip. Informational / false-positive cases that still pass the open gate may **auto-close** (`AUTONOMY_AUTO_CLOSE_NOISE`) without Discord or Cursor. Suspicious / true-positive stay HITL. Containment is still never executed.
 
 ```bash
 # Status from this Mac

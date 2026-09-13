@@ -11,6 +11,7 @@ from agentic_soc.triage import (
     RULE_PORT_SCAN_MULTI,
     RULE_UFW_BLOCK,
     is_auto_close_noise,
+    is_router_noise,
     is_successful_sudo,
     score_alert,
     should_open_case,
@@ -178,7 +179,62 @@ def test_autonomy_journal_self_ingest_skipped():
     assert gate["reason"] == "self_ingest_noise"
 
 
-def test_cis_noise_skipped():
+def test_agentic_soc_logger_self_ingest_skipped():
+    alert = _alert(
+        rule_id="2501",
+        rule_level=5,
+        description="syslog: User authentication failure.",
+        full_log=(
+            "Sep 13 12:00:00 pop-os python: agentic_soc.tools: "
+            "opened case #12 syslog: User authentication failure."
+        ),
+        groups=["syslog"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "false_positive"
+    assert should_open_case(alert, j)["open"] is False
+
+
+def test_asus_httpd_success_and_igmp_drop_are_router_noise():
+    login = _alert(
+        rule_id="100201",
+        rule_level=3,
+        description="ASUS web admin login success.",
+        full_log="Sep 13 12:42:24 HTTPD: [LOGIN] [http][Web] success (192.168.50.187)",
+        groups=["asus", "authentication_success"],
+    )
+    j = score_alert(login)
+    assert j["disposition"] == "informational"
+    assert is_router_noise(login) is True
+    assert should_open_case(login, j)["open"] is False
+
+    drop = _alert(
+        rule_id="100203",
+        rule_level=3,
+        description="ASUS kernel DROP (often IGMP/multicast lab noise).",
+        full_log=(
+            "Sep 13 12:49:16 kernel: DROP IN=eth4 OUT= MAC=01:00:5e:00:00:01 "
+            "SRC=0.0.0.0 DST=224.0.0.1"
+        ),
+        groups=["asus", "firewall_drop"],
+    )
+    j2 = score_alert(drop)
+    assert j2["disposition"] == "informational"
+    assert should_open_case(drop, j2)["open"] is False
+
+
+def test_asus_web_login_failure_stays_hitl():
+    alert = _alert(
+        rule_id="100202",
+        rule_level=7,
+        description="ASUS web admin login failure.",
+        full_log="Sep 13 12:42:24 HTTPD: [LOGIN] [http][Web] fail (203.0.113.9)",
+        groups=["asus", "authentication_failed"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "suspicious"
+    assert is_router_noise(alert) is False
+    assert should_open_case(alert, j)["open"] is True
     alert = _alert(
         rule_id="19005",
         rule_level=7,

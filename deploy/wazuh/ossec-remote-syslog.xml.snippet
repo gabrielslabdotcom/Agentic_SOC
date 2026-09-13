@@ -1,0 +1,9 @@
+<!-- Insert before the existing secure <remote> block in wazuh_manager.conf.
+     allowed-ips is required. Pin the ASUS LAN IP (this lab: 192.168.50.1).
+     Do not set <local_ip> to the Pop host address inside Docker. -->
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>udp</protocol>
+  <allowed-ips>192.168.50.1</allowed-ips>
+</remote>
