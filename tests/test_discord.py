@@ -43,6 +43,17 @@ def test_parse_outcome_custom_id_rejects_bad() -> None:
         parse_outcome_custom_id("soc:not_a_real:1")
     with pytest.raises(ValueError):
         parse_outcome_custom_id("soc:benign:nope")
+    with pytest.raises(ValueError, match="must be >= 1"):
+        parse_outcome_custom_id("soc:benign:0")
+    with pytest.raises(ValueError, match="must be >= 1"):
+        parse_outcome_custom_id("soc:confirmed_compromise:-1")
+
+
+def test_build_outcome_components_rejects_invalid_id() -> None:
+    with pytest.raises(ValueError, match="must be >= 1"):
+        build_outcome_components(0)
+    with pytest.raises(ValueError, match="must be >= 1"):
+        outcome_custom_id(BENIGN, 0)
 
 
 def test_build_outcome_components_five_buttons() -> None:
@@ -193,6 +204,64 @@ def test_notify_case_opened_webhook_has_no_components(
     assert result["ok"] is True
     assert result["via"] == "webhook"
     assert "components" not in captured["json"]
+
+
+def test_notify_case_opened_skips_buttons_for_invalid_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = Settings(
+        cases_db_path=str(tmp_path / "c.sqlite"),
+        discord_bot_token="test-token",
+        discord_channel_id="999001",
+        discord_webhook_url="",
+    )
+    notifier = DiscordNotifier(settings)
+    captured: dict = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"id": "msg1"}
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def post(self, url, json=None, headers=None):
+            captured["json"] = json
+            return FakeResp()
+
+    import agentic_soc.discord_notify as mod
+
+    monkeypatch.setattr(mod.httpx, "AsyncClient", FakeClient)
+
+    for bad_id in (0, None, -3):
+        captured.clear()
+        result = asyncio.run(
+            notifier.notify_case_opened(
+                {"id": bad_id, "title": "bad id", "severity": "low"}
+            )
+        )
+        assert result["ok"] is True
+        assert "components" not in captured["json"]
+
+
+def test_handle_outcome_click_rejects_case_id_zero(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "cases.sqlite")
+    result = handle_outcome_click(
+        store,
+        custom_id="soc:benign:0",
+        user=SimpleNamespace(name="x", id=1),
+    )
+    assert result["ok"] is False
+    assert "must be >= 1" in result["error"]
 
 
 def test_handle_outcome_click_resolves(tmp_path: Path) -> None:

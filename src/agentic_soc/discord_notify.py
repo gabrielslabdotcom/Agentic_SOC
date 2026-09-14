@@ -43,6 +43,8 @@ def parse_outcome_custom_id(custom_id: str) -> tuple[str, int]:
         case_id = int(parts[2])
     except ValueError as exc:
         raise ValueError(f"invalid case_id in custom_id: {custom_id!r}") from exc
+    if case_id < 1:
+        raise ValueError(f"invalid case_id {case_id} (must be >= 1)")
     return disposition, case_id
 
 
@@ -50,11 +52,16 @@ def outcome_custom_id(disposition: str, case_id: int) -> str:
     disposition = (disposition or "").strip().lower()
     if disposition not in ANALYST_DISPOSITIONS:
         raise ValueError(f"unknown disposition: {disposition!r}")
-    return f"{CUSTOM_ID_PREFIX}:{disposition}:{int(case_id)}"
+    cid = int(case_id)
+    if cid < 1:
+        raise ValueError(f"invalid case_id {cid} (must be >= 1)")
+    return f"{CUSTOM_ID_PREFIX}:{disposition}:{cid}"
 
 
 def build_outcome_components(case_id: int) -> list[dict[str, Any]]:
     """ActionRows of analyst-outcome buttons for a case-opened message."""
+    if int(case_id) < 1:
+        raise ValueError(f"invalid case_id {case_id} (must be >= 1)")
     order = (
         FALSE_POSITIVE,
         BENIGN,
@@ -336,7 +343,9 @@ class DiscordNotifier:
         components: Optional[list[dict[str, Any]]] = None
         if self.bot_configured and case_id is not None:
             try:
-                components = build_outcome_components(int(case_id))
+                cid = int(case_id)
+                if cid >= 1:
+                    components = build_outcome_components(cid)
             except (TypeError, ValueError):
                 components = None
         return await self.send_raw(
