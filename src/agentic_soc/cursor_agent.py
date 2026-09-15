@@ -114,7 +114,7 @@ Do **not** approve/reject or execute containment.
 ## Hard rules
 - **Propose only.** Never execute containment, firewall changes, process kills, or SOAR actions.
 - Never call approve/reject endpoints; a human decides.
-- Use this repo's docs and playbooks (especially `docs/SETUP_GUIDE.md`, triage heuristics, eval fixtures) to enrich judgment.
+- Use case payload, triage heuristics, and eval fixtures in this repo to enrich judgment.
 - Public Cursor cloud VMs **cannot** reach private LAN Wazuh at `192.168.50.254` unless a tunnel or self-hosted pool is configured. Prefer case payload + repo context; do not hang on unreachable LAN APIs.
 
 ## Case under investigation

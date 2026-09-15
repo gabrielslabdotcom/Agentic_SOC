@@ -46,7 +46,7 @@ _SRC_IP_RE = re.compile(
     re.I,
 )
 
-# Lab custom UFW / port-scan rules (see docs/SETUP_GUIDE.md §8.1)
+# Lab custom UFW / port-scan rules (see deploy/wazuh/local_rules.xml)
 RULE_UFW_BLOCK = "100100"
 RULE_PORT_SCAN_MULTI = "100101"
 RULE_PORT_SCAN_LAB = "100102"

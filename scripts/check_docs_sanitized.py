@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail if public docs still contain lab-specific IPs, paths, or passwords.
 
-Scans only: README.md, docs/site/, .env.example
-Does not scan SETUP_GUIDE, tests, evals, or deploy units.
+Scans only: README.md, .env.example
+Does not scan tests, evals, or deploy units.
 """
 
 from __future__ import annotations
@@ -26,10 +26,6 @@ FORBIDDEN: list[tuple[str, re.Pattern[str]]] = [
 
 def iter_public_files() -> list[Path]:
     files: list[Path] = [ROOT / "README.md", ROOT / ".env.example"]
-    site = ROOT / "docs" / "site"
-    if site.is_dir():
-        files.extend(sorted(site.rglob("*.md")))
-        files.extend(sorted(site.rglob("*.html")))
     return [p for p in files if p.is_file()]
 
 
@@ -48,7 +44,7 @@ def main() -> int:
             print(f"  {v}", file=sys.stderr)
         print(
             "\nUse placeholders (<SIEM_HOST>, $AGENTIC_SOC_HOME, …). "
-            "Real values belong in gitignored docs/LAB_LOCAL.md.",
+            "Real values belong in gitignored local notes.",
             file=sys.stderr,
         )
         return 1
