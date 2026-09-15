@@ -1,4 +1,5 @@
 .env
+docs/LAB_LOCAL.md
 .venv/
 venv/
 __pycache__/

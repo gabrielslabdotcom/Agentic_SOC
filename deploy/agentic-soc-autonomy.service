@@ -1,3 +1,4 @@
+# Paths below are host-specific — edit WorkingDirectory / EnvironmentFile for your install ($AGENTIC_SOC_HOME).
 [Unit]
 Description=Agentic SOC autonomous triage loop
 After=network-online.target docker.service
