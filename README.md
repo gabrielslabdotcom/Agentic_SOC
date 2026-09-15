@@ -2,10 +2,6 @@
 
 AI-first SOC lab: **Wazuh** for detection, **agents + tools** for triage and investigation.
 
-**Sectioned write-up (GitLab-style, public-safe placeholders):** **[docs/site/](docs/site/)** — [overview](docs/site/index.md), install, operations, [roadmap](docs/site/roadmap.md). Local preview: `cd docs/site && python3 -m http.server 8000` then http://127.0.0.1:8000/ (static files only — not the FastAPI UI on 8080).
-
-**Operator bible (lab secrets, full troubleshooting, every command):** **[docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md)**.
-
 ## Architecture
 
 ```text
@@ -20,21 +16,27 @@ This Mac (Cursor / agent plane)
       live UI: http://192.168.50.254:8080/   (Mac uvicorn :8080 is the local copy only)
 ```
 
+
+
 ## Lab endpoints (laptop)
 
-| Service | URL |
-|---------|-----|
-| Wazuh dashboard | https://192.168.50.254 |
-| Manager API | https://192.168.50.254:55000 |
-| Indexer | https://192.168.50.254:9200 |
-| Analyst UI (Pop cases) | http://192.168.50.254:8080/ (UFW allowlisted; Mac uvicorn on :8080 is the local copy) |
+
+| Service                | URL                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Wazuh dashboard        | [https://192.168.50.254](https://192.168.50.254)                                                                     |
+| Manager API            | [https://192.168.50.254:55000](https://192.168.50.254:55000)                                                         |
+| Indexer                | [https://192.168.50.254:9200](https://192.168.50.254:9200)                                                           |
+| Analyst UI (Pop cases) | [http://192.168.50.254:8080/](http://192.168.50.254:8080/) (UFW allowlisted; Mac uvicorn on :8080 is the local copy) |
+
 
 Default **lab-only** credentials (change before any non-lab use):
 
-| Surface | User | Password |
-|---------|------|----------|
-| Dashboard / Indexer | `admin` | `SecretPassword` |
-| Manager API | `wazuh-wui` | `MyS3cr37P450r.*-` |
+
+| Surface             | User        | Password           |
+| ------------------- | ----------- | ------------------ |
+| Dashboard / Indexer | `admin`     | `SecretPassword`   |
+| Manager API         | `wazuh-wui` | `MyS3cr37P450r.*-` |
+
 
 Wazuh lives at `/home/admin/wazuh-docker/single-node` on the laptop (`ssh soc`).
 
@@ -57,10 +59,12 @@ python scripts/eval_triage.py
 
 Analyst dashboard (two DBs — they are not synced):
 
-| Cases you want | How |
-|----------------|-----|
-| **Live Discord / autonomy cases on Pop** | http://192.168.50.254:8080/ (banner: **LIVE Pop cases**). UFW allows TCP 8080 only from this Mac (and optionally Kali). Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → http://127.0.0.1:8081/. |
-| **This Mac’s local copy** | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**). Not Discord cases. |
+
+| Cases you want                           | How                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Live Discord / autonomy cases on Pop** | [http://192.168.50.254:8080/](http://192.168.50.254:8080/) (banner: **LIVE Pop cases**). UFW allows TCP 8080 only from this Mac (and optionally Kali). Optional tunnel fallback: `./scripts/tunnel_pop_dashboard.sh` → [http://127.0.0.1:8081/](http://127.0.0.1:8081/). |
+| **This Mac’s local copy**                | `uvicorn agentic_soc.api:app --reload --port 8080` — uses this repo’s `data/cases.sqlite` (banner: **Mac local copy**). Not Discord cases.                                                                                                                               |
+
 
 ```bash
 # Mac-local API only (not the Discord/autonomy DB)
@@ -74,24 +78,30 @@ uvicorn agentic_soc.api:app --reload --port 8080
 
 ## Cursor MCP
 
-Project config is at [`.cursor/mcp.json`](.cursor/mcp.json). In Cursor: **Settings → MCP** and enable **agentic-soc** (or reload MCP servers). It runs:
+Project config is at `[.cursor/mcp.json](.cursor/mcp.json)`. In Cursor: **Settings → MCP** and enable **agentic-soc** (or reload MCP servers). It runs:
 
 ```bash
 /Users/admin/Documents/Agentic_SOC/.venv/bin/python -m agentic_soc.mcp_server
 ```
 
+
+
 ## Agent tool surface
 
-| Tool | Purpose |
-|------|---------|
-| `list_agents` | Agent inventory + status |
-| `list_alerts` | Recent alerts from the indexer |
-| `get_alert` | Fetch one alert by id |
-| `open_case` / `get_case` / `update_case` / `list_cases` | Local SQLite case memory |
-| `propose_action` | Log-only response recommendation (no auto-containment) |
-| `approve_case` | Human closing outcome (status + notes only; no containment) |
-| `upsert_entity` / `link_alert_to_entity` / `link_case_to_entity` / `find_related` | SQLite entity correlation (not Neo4j) |
-| `enrich_ioc` | VirusTotal lookup for ip / domain / url / hash |
+
+| Tool                                                                              | Purpose                                                     |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `list_agents`                                                                     | Agent inventory + status                                    |
+| `list_alerts`                                                                     | Recent alerts from the indexer                              |
+| `get_alert`                                                                       | Fetch one alert by id                                       |
+| `open_case` / `get_case` / `update_case` / `list_cases`                           | Local SQLite case memory                                    |
+| `propose_action`                                                                  | Log-only response recommendation (no auto-containment)      |
+| `approve_case`                                                                    | Human closing outcome (status + notes only; no containment) |
+| `upsert_entity` / `link_alert_to_entity` / `link_case_to_entity` / `find_related` | SQLite entity correlation (not Neo4j)                       |
+| `enrich_ioc`                                                                      | VirusTotal lookup for ip / domain / url / hash              |
+
+
+
 
 ## Closed-loop triage
 
@@ -114,6 +124,8 @@ Uses heuristics in `src/agentic_soc/triage.py` plus VirusTotal when public IOCs 
 - Prefer aggregate port-scan rules `100101` / `100102`; lone UFW BLOCK `100100` is demoted / skipped
 - Auth failures → suspicious + open case; CIS/SCA → informational + skip
 - See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md) **§8.1** (UFW) and **§11** (end-user workflow: generate → triage → eval → approve)
+
+
 
 ## Eval + human approval
 
@@ -145,7 +157,7 @@ ssh soc 'journalctl --user -u agentic-soc-autonomy.service -f'
 # SIGKILL only if it still hangs — SETUP_GUIDE §12.3
 ```
 
-Open live cases from the Mac: **http://192.168.50.254:8080/** (banner **LIVE Pop cases**). Mac `uvicorn --port 8080` is the local fixture DB only. Tunnel `8081` is an optional fallback.
+Open live cases from the Mac: **[http://192.168.50.254:8080/](http://192.168.50.254:8080/)** (banner **LIVE Pop cases**). Mac `uvicorn --port 8080` is the local fixture DB only. Tunnel `8081` is an optional fallback.
 
 ## Mac-offline LLM (Cursor cloud — already enabled)
 
@@ -160,11 +172,12 @@ Build-out including HITL next steps and a constrained cloud path: **[docs/site/r
 
 ## Next steps
 
-Phase A (HITL ops) is in this repo: instance banners, LAN analyst UI on **http://192.168.50.254:8080/**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
+Phase A (HITL ops) is in this repo: instance banners, LAN analyst UI on **[http://192.168.50.254:8080/](http://192.168.50.254:8080/)**, `lab_status.py`, unique `alert_id`, `since` cursor on the autonomy poll. After rsync + unit-file refresh on Pop, prefer `systemctl --user restart` over SIGKILL.
 
-1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject at **http://192.168.50.254:8080/** (record-only). **No auto-containment.**
+1. Keep `agentic-soc-autonomy` and `agentic-soc-dashboard` running on Pop; review Discord pings (case opened **and** investigation note ready) and Approve / Reject at **[http://192.168.50.254:8080/](http://192.168.50.254:8080/)** (record-only). **No auto-containment.**
 2. **Phase B:** Cursor final reply is stored on the case; dashboard shows **Cursor investigation**; Discord follow-up when it lands.
 3. **Phase C:** live auth L5 via OR query (min-level stays 8); Approve / Reject skip on `rule_id`+source IP; grown `evals/labeled_alerts.json` plus `python scripts/eval_feedback.py`.
 4. **Phase D:** limited auto-close of informational / false-positive noise (`AUTONOMY_AUTO_CLOSE_NOISE`) — no Discord, no Cursor. Suspicious stays HITL.
 5. **Phase E (this repo):** HITL containment *plan* — record `sudo -n ufw deny from <src>` on the case. Execute requires `CONTAINMENT_ENABLED=true` plus a separate dashboard click. Approve / autonomy never run UFW. Auto-containment stays deferred.
 6. Entity correlation stays SQLite (`find_related`). Defer Neo4j / SOAR / Security Onion / Hydra.
+
