@@ -2,6 +2,100 @@
 
 AI-first SOC lab: **Wazuh** for detection, **agents + tools** for triage and investigation. Human-in-the-loop (HITL) only — **no auto-containment**.
 
+## Quick start
+
+This repo is the **Agentic SOC app** (Python tools, analyst UI, optional autonomy/Discord/Cursor). Wazuh itself is installed separately — use the official [wazuh-docker](https://github.com/wazuh/wazuh-docker) single-node guide (or any Wazuh manager + indexer you already run).
+
+### Prerequisites
+
+- Python **3.11+**
+- A reachable Wazuh manager API (`:55000`) and indexer (`:9200`)
+- Optional: Discord webhook or bot token, VirusTotal key, Cursor API key (see [`.env.example`](.env.example))
+
+### Bootstrap the app
+
+```bash
+git clone <this-repo> Agentic_SOC
+cd Agentic_SOC
+./scripts/bootstrap_app.sh          # venv + pip install -e '.[dev]' + .env if missing
+# or with extras:
+# ./scripts/bootstrap_app.sh --extras cursor,discord
+source .venv/bin/activate
+```
+
+Manual equivalent:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'             # add ,cursor and/or ,discord as needed
+cp -n .env.example .env             # do not overwrite an existing .env
+```
+
+| Extra | Install | Used for |
+| ----- | ------- | -------- |
+| (none) | `pip install -e .` | Core API, MCP, triage scripts |
+| `dev` | `pip install -e '.[dev]'` | pytest |
+| `discord` | `pip install -e '.[discord]'` | Gateway bot (`agentic-soc-discord-bot`) |
+| `cursor` | `pip install -e '.[cursor]'` | Cursor cloud investigation from autonomy |
+
+### Configure `.env`
+
+1. Copy [`.env.example`](.env.example) → `.env` (bootstrap does this once).
+2. Set `WAZUH_API_URL`, `WAZUH_INDEXER_URL`, and credentials for **your** SIEM.
+   - On the SIEM host itself, prefer `https://127.0.0.1:55000` / `:9200` (already noted in `.env.example`).
+   - From another machine, use `https://<SIEM_HOST>:…`.
+3. Set `CASES_DB_PATH` (default `data/cases.sqlite`). Live Pop autonomy and a workstation MCP copy are **separate** files — they are not synced.
+4. **Always set `.env`.** Do not rely on code defaults in `config.py` for URLs or passwords.
+5. Never commit `.env`.
+
+### Run locally
+
+```bash
+source .venv/bin/activate
+python scripts/check_wazuh.py       # manager + indexer smoke test
+uvicorn agentic_soc.api:app --host 127.0.0.1 --port 8080
+# open http://127.0.0.1:8080/
+```
+
+### Linux SIEM host (optional systemd)
+
+Units under [`deploy/`](deploy/) are templates. Copy them, replace every hardcoded install path with your `$AGENTIC_SOC_HOME` (WorkingDirectory, EnvironmentFile, ExecStart / venv python), then:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/agentic-soc-*.service ~/.config/systemd/user/
+# edit paths in those copies
+systemctl --user daemon-reload
+systemctl --user enable --now agentic-soc-autonomy.service agentic-soc-dashboard.service
+# optional: agentic-soc-discord-bot.service after pip install -e '.[discord]'
+loginctl enable-linger "$USER"   # keep user units after logout
+```
+
+Bind the dashboard only as needed; the API has no login — restrict access (e.g. firewall allowlist) rather than exposing `:8080` to an entire LAN.
+
+### Cursor MCP (optional)
+
+Point Cursor at the repo venv with cwd = repo root (no machine-specific home paths in git):
+
+```json
+{
+  "mcpServers": {
+    "agentic-soc": {
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "agentic_soc.mcp_server"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
+```
+
+If your Cursor build does not expand `${workspaceFolder}`, substitute the absolute path to this clone.
+
+### Optional Wazuh detection snippets
+
+[`deploy/wazuh/`](deploy/wazuh/) has lab-oriented `local_rules.xml`, `local_decoder.xml`, and a remote-syslog snippet. Merge them into **your** manager if you want similar UFW / port-scan detections. Edit syslog `allowed-ips` to your own syslog source — do not copy another lab’s LAN addresses.
+
 ## Architecture
 
 ```text
