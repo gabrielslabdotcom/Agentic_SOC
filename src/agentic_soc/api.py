@@ -13,15 +13,31 @@ from pydantic import BaseModel, Field, model_validator
 
 from agentic_soc.analyst_outcomes import coerce_analyst_disposition
 from agentic_soc.config import hostname
-from agentic_soc.tools import get_tools
+from agentic_soc.policy import ANALYST
+from agentic_soc.tools import SocTools
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+_api_tools: Optional[SocTools] = None
 
 app = FastAPI(
     title="Agentic SOC Tools",
     description="Lab tool API for Wazuh triage and local case memory.",
     version="0.1.0",
 )
+
+
+def get_tools() -> SocTools:
+    """Dashboard process is the analyst. MCP uses tools.get_tools() as investigator."""
+    global _api_tools
+    if _api_tools is None:
+        _api_tools = SocTools(role=ANALYST)
+    return _api_tools
+
+
+def _release(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("error") == "policy_denied":
+        raise HTTPException(status_code=403, detail=result)
+    return result
 
 
 class OpenCaseBody(BaseModel):
@@ -208,12 +224,12 @@ async def get_alert(alert_id: str) -> dict[str, Any]:
 
 @app.post("/tools/open_case")
 def open_case(body: OpenCaseBody) -> dict[str, Any]:
-    return get_tools().open_case(**body.model_dump())
+    return _release(get_tools().open_case(**body.model_dump()))
 
 
 @app.patch("/tools/update_case/{case_id}")
 def update_case(case_id: int, body: UpdateCaseBody) -> dict[str, Any]:
-    result = get_tools().update_case(case_id, **body.model_dump(exclude_unset=True))
+    result = _release(get_tools().update_case(case_id, **body.model_dump(exclude_unset=True)))
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
     return result
@@ -245,11 +261,14 @@ def approve_case(case_id: int, body: ApproveCaseBody) -> dict[str, Any]:
 
     Lab-safe: updates status + notes only; never executes containment.
     """
-    result = get_tools().resolve_proposal(
-        case_id,
-        disposition=body.disposition,
-        note=body.note,
-        author=body.author,
+    result = _release(
+        get_tools().resolve_proposal(
+            case_id,
+            disposition=body.disposition,
+            approved=body.approved,
+            note=body.note,
+            author=body.author,
+        )
     )
     if result.get("error"):
         err = str(result.get("error") or "")
@@ -266,11 +285,14 @@ def approve_cases(body: BulkApproveBody) -> dict[str, Any]:
 
     Skips cases that are not open. Never executes containment.
     """
-    return get_tools().resolve_proposals(
-        body.case_ids,
-        disposition=body.disposition,
-        note=body.note,
-        author=body.author,
+    return _release(
+        get_tools().resolve_proposals(
+            body.case_ids,
+            disposition=body.disposition,
+            approved=body.approved,
+            note=body.note,
+            author=body.author,
+        )
     )
 
 
@@ -306,13 +328,15 @@ def list_suppressions(
 @app.post("/tools/add_suppression")
 def add_suppression(body: AddSuppressionBody) -> dict[str, Any]:
     """Analyst-managed rule suppression (auto-close before Discord/Cursor)."""
-    result = get_tools().add_suppression(
-        rule_id=body.rule_id,
-        disposition=body.disposition,
-        source_ip=body.source_ip,
-        note=body.note,
-        created_by=body.created_by,
-        expires_at=body.expires_at,
+    result = _release(
+        get_tools().add_suppression(
+            rule_id=body.rule_id,
+            disposition=body.disposition,
+            source_ip=body.source_ip,
+            note=body.note,
+            created_by=body.created_by,
+            expires_at=body.expires_at,
+        )
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result)
@@ -321,7 +345,7 @@ def add_suppression(body: AddSuppressionBody) -> dict[str, Any]:
 
 @app.post("/tools/disable_suppression/{suppression_id}")
 def disable_suppression(suppression_id: int) -> dict[str, Any]:
-    result = get_tools().disable_suppression(suppression_id)
+    result = _release(get_tools().disable_suppression(suppression_id))
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
     return result
@@ -351,11 +375,13 @@ def suppression_suggestions(
 
 @app.post("/tools/propose_action/{case_id}")
 def propose_action(case_id: int, body: ProposeActionBody) -> dict[str, Any]:
-    result = get_tools().propose_action(
-        case_id,
-        body.action,
-        rationale=body.rationale,
-        auto_execute=body.auto_execute,
+    result = _release(
+        get_tools().propose_action(
+            case_id,
+            body.action,
+            rationale=body.rationale,
+            auto_execute=body.auto_execute,
+        )
     )
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
@@ -371,21 +397,25 @@ def containment_plan(
     """Dry-run UFW deny plan. Never executes."""
     if case_id is None and not (source_ip or "").strip():
         raise HTTPException(status_code=400, detail={"error": "case_id or source_ip required"})
-    return get_tools().plan_containment(
-        source_ip=source_ip,
-        case_id=case_id,
-        record=record,
+    return _release(
+        get_tools().plan_containment(
+            source_ip=source_ip,
+            case_id=case_id,
+            record=record,
+        )
     )
 
 
 @app.post("/tools/execute_containment")
 def execute_containment(body: ExecuteContainmentBody) -> dict[str, Any]:
     """HITL UFW deny. No-op unless CONTAINMENT_ENABLED=true and confirm=true."""
-    result = get_tools().execute_containment(
-        body.case_id,
-        confirm=body.confirm,
-        source_ip=body.source_ip,
-        author=body.author,
+    result = _release(
+        get_tools().execute_containment(
+            body.case_id,
+            confirm=body.confirm,
+            source_ip=body.source_ip,
+            author=body.author,
+        )
     )
     if result.get("error") and result.get("id"):
         raise HTTPException(status_code=404, detail=result)
@@ -394,7 +424,7 @@ def execute_containment(body: ExecuteContainmentBody) -> dict[str, Any]:
 
 @app.post("/tools/upsert_entity")
 def upsert_entity(body: UpsertEntityBody) -> dict[str, Any]:
-    result = get_tools().upsert_entity(body.entity_type, body.value)
+    result = _release(get_tools().upsert_entity(body.entity_type, body.value))
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result)
     return result
@@ -402,10 +432,12 @@ def upsert_entity(body: UpsertEntityBody) -> dict[str, Any]:
 
 @app.post("/tools/link_alert_to_entity")
 def link_alert_to_entity(body: LinkAlertEntityBody) -> dict[str, Any]:
-    result = get_tools().link_alert_to_entity(
-        body.entity_id,
-        body.alert_id,
-        case_id=body.case_id,
+    result = _release(
+        get_tools().link_alert_to_entity(
+            body.entity_id,
+            body.alert_id,
+            case_id=body.case_id,
+        )
     )
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)
@@ -414,10 +446,12 @@ def link_alert_to_entity(body: LinkAlertEntityBody) -> dict[str, Any]:
 
 @app.post("/tools/link_case_to_entity")
 def link_case_to_entity(body: LinkCaseEntityBody) -> dict[str, Any]:
-    result = get_tools().link_case_to_entity(
-        body.entity_id,
-        body.case_id,
-        alert_id=body.alert_id,
+    result = _release(
+        get_tools().link_case_to_entity(
+            body.entity_id,
+            body.case_id,
+            alert_id=body.alert_id,
+        )
     )
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result)

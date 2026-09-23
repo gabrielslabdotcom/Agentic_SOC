@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from agentic_soc import api as api_mod
 from agentic_soc.config import Settings
+from agentic_soc.policy import ANALYST
 from agentic_soc.tools import SocTools
 
 
@@ -16,7 +17,7 @@ from agentic_soc.tools import SocTools
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     db = tmp_path / "cases.sqlite"
     settings = Settings(cases_db_path=str(db), wazuh_dashboard_url="https://example.test")
-    tools = SocTools(settings=settings)
+    tools = SocTools(settings=settings, role=ANALYST)
     monkeypatch.setattr(api_mod, "get_tools", lambda: tools)
     return TestClient(api_mod.app)
 
@@ -205,7 +206,7 @@ def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         wazuh_dashboard_url="https://example.test",
         agentic_soc_instance="pop-live",
     )
-    tools = SocTools(settings=settings)
+    tools = SocTools(settings=settings, role=ANALYST)
     monkeypatch.setattr(api_mod, "get_tools", lambda: tools)
     client = TestClient(api_mod.app)
     data = client.get("/tools/ui_config").json()

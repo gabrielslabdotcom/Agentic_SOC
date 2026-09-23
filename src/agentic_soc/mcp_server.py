@@ -7,9 +7,15 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from agentic_soc.policy import INVESTIGATOR
 from agentic_soc.tools import get_tools
 
 mcp = FastMCP("agentic_soc")
+
+
+def _tools():
+    """MCP is an investigator. It cannot approve or execute."""
+    return get_tools(role=INVESTIGATOR)
 
 
 def _json(data: Any) -> str:
@@ -19,7 +25,7 @@ def _json(data: Any) -> str:
 @mcp.tool(name="list_agents", annotations={"readOnlyHint": True, "destructiveHint": False})
 async def list_agents(limit: int = 100) -> str:
     """List Wazuh agents and their status from the manager API."""
-    return _json(await get_tools().list_agents(limit=limit))
+    return _json(await _tools().list_agents(limit=limit))
 
 
 @mcp.tool(name="list_alerts", annotations={"readOnlyHint": True, "destructiveHint": False})
@@ -31,7 +37,7 @@ async def list_alerts(
 ) -> str:
     """List recent Wazuh alerts from the indexer."""
     return _json(
-        await get_tools().list_alerts(
+        await _tools().list_alerts(
             limit=limit,
             min_level=min_level,
             agent_name=agent_name,
@@ -43,7 +49,7 @@ async def list_alerts(
 @mcp.tool(name="get_alert", annotations={"readOnlyHint": True, "destructiveHint": False})
 async def get_alert(alert_id: str) -> str:
     """Fetch one Wazuh alert by document id."""
-    return _json(await get_tools().get_alert(alert_id))
+    return _json(await _tools().get_alert(alert_id))
 
 
 @mcp.tool(name="open_case", annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -59,7 +65,7 @@ async def open_case(
 ) -> str:
     """Open a local investigation case in SQLite case memory."""
     return _json(
-        get_tools().open_case(
+        _tools().open_case(
             title=title,
             alert_id=alert_id,
             agent_name=agent_name,
@@ -84,7 +90,7 @@ async def update_case(
 ) -> str:
     """Update an existing local case."""
     return _json(
-        get_tools().update_case(
+        _tools().update_case(
             case_id,
             status=status,
             disposition=disposition,
@@ -99,7 +105,7 @@ async def update_case(
 @mcp.tool(name="list_cases", annotations={"readOnlyHint": True, "destructiveHint": False})
 async def list_cases(status: Optional[str] = None, limit: int = 50) -> str:
     """List local investigation cases."""
-    return _json(get_tools().list_cases(status=status, limit=limit))
+    return _json(_tools().list_cases(status=status, limit=limit))
 
 
 @mcp.tool(name="propose_action", annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -111,7 +117,7 @@ async def propose_action(
 ) -> str:
     """Log a response proposal only — never auto-executes containment."""
     return _json(
-        get_tools().propose_action(
+        _tools().propose_action(
             case_id,
             action,
             rationale=rationale,
@@ -123,13 +129,13 @@ async def propose_action(
 @mcp.tool(name="enrich_ioc", annotations={"readOnlyHint": True, "destructiveHint": False})
 async def enrich_ioc(ioc: str, ioc_type: Optional[str] = None) -> str:
     """Enrich an IOC (ip, domain, url, or hash) via VirusTotal."""
-    return _json(await get_tools().enrich_ioc(ioc=ioc, ioc_type=ioc_type))
+    return _json(await _tools().enrich_ioc(ioc=ioc, ioc_type=ioc_type))
 
 
 @mcp.tool(name="upsert_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
 async def upsert_entity(entity_type: str, value: str) -> str:
     """Insert or refresh a SQLite entity (ip, user, host, hash, domain)."""
-    return _json(get_tools().upsert_entity(entity_type, value))
+    return _json(_tools().upsert_entity(entity_type, value))
 
 
 @mcp.tool(name="link_alert_to_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -139,7 +145,7 @@ async def link_alert_to_entity(
     case_id: Optional[int] = None,
 ) -> str:
     """Link an entity to a Wazuh alert (and optionally a case)."""
-    return _json(get_tools().link_alert_to_entity(entity_id, alert_id, case_id=case_id))
+    return _json(_tools().link_alert_to_entity(entity_id, alert_id, case_id=case_id))
 
 
 @mcp.tool(name="link_case_to_entity", annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -149,7 +155,7 @@ async def link_case_to_entity(
     alert_id: Optional[str] = None,
 ) -> str:
     """Link an entity to a local case (and optionally an alert)."""
-    return _json(get_tools().link_case_to_entity(entity_id, case_id, alert_id=alert_id))
+    return _json(_tools().link_case_to_entity(entity_id, case_id, alert_id=alert_id))
 
 
 @mcp.tool(name="find_related", annotations={"readOnlyHint": True, "destructiveHint": False})
@@ -163,7 +169,7 @@ async def find_related(
 ) -> str:
     """Find cases/alerts that share SQLite entities (same IP, hash, user, domain)."""
     return _json(
-        get_tools().find_related(
+        _tools().find_related(
             case_id=case_id,
             alert_id=alert_id,
             entity_type=entity_type,

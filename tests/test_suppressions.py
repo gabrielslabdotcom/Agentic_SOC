@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from agentic_soc import api as api_mod
 from agentic_soc.cases import CaseStore
 from agentic_soc.config import Settings
+from agentic_soc.policy import ANALYST
 from agentic_soc.tools import SocTools
 
 
@@ -23,7 +24,7 @@ def store(tmp_path: Path) -> CaseStore:
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     db = tmp_path / "cases.sqlite"
     settings = Settings(cases_db_path=str(db), wazuh_dashboard_url="https://example.test")
-    tools = SocTools(settings=settings)
+    tools = SocTools(settings=settings, role=ANALYST)
     monkeypatch.setattr(api_mod, "get_tools", lambda: tools)
     return TestClient(api_mod.app)
 

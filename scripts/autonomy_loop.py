@@ -29,6 +29,7 @@ from agentic_soc.cursor_agent import (  # noqa: E402
     explain_incident,
     should_explain_incident,
 )
+from agentic_soc.policy import INVESTIGATOR  # noqa: E402
 from agentic_soc.discord_notify import DiscordNotifier  # noqa: E402
 from agentic_soc.triage import (  # noqa: E402
     RULE_UFW_BLOCK,
@@ -179,7 +180,7 @@ async def _enrich(tools: SocTools, iocs: list[dict[str, str]], enabled: bool) ->
 
 
 async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]:
-    tools = SocTools()
+    tools = SocTools(role=INVESTIGATOR)
     discord = DiscordNotifier(tools.settings)
     seen = set(state.get("seen_alert_ids") or [])
     known_cases = _existing_case_alert_ids(tools)

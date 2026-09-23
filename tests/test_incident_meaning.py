@@ -270,7 +270,11 @@ def test_autonomy_explains_on_open_and_severity_rise_not_quiet_attach(monkeypatc
         ("rise", "alert-rise", [7]),
     ):
         explained.clear()
-        monkeypatch.setattr(loop, "SocTools", lambda s=scenario, a=alert_id: _CycleTools(s, _alert(a)))
+        monkeypatch.setattr(
+            loop,
+            "SocTools",
+            lambda s=scenario, a=alert_id, **kwargs: _CycleTools(s, _alert(a)),
+        )
         report = asyncio.run(loop.run_cycle(_cycle_args(), {}))
         assert explained == expect, scenario
         if scenario == "quiet":

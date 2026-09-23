@@ -12,6 +12,7 @@ from agentic_soc.containment import (
     plan_note,
 )
 from agentic_soc.enrichment import VirusTotalClient
+from agentic_soc.policy import INVESTIGATOR, allow, denial, normalize_role
 from agentic_soc.triage import extract_iocs, extract_source_ip, extract_user
 from agentic_soc.wazuh_client import WazuhClient
 
@@ -21,11 +22,17 @@ _IOC_TO_ENTITY = {"ip": "ip", "hash": "hash", "domain": "domain"}
 class SocTools:
     """Thin facade used by scripts, FastAPI, and future MCP/agent wrappers."""
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(self, settings: Optional[Settings] = None, *, role: str = INVESTIGATOR) -> None:
         self.settings = settings or get_settings()
+        self.role = normalize_role(role)
         self.wazuh = WazuhClient(self.settings)
         self.cases = CaseStore(self.settings.cases_path)
         self.vt = VirusTotalClient(self.settings)
+
+    def _guard(self, action: str) -> Optional[dict[str, Any]]:
+        if allow(self.role, action):
+            return None
+        return denial(self.role, action)
 
     async def list_agents(self, limit: int = 100) -> dict[str, Any]:
         return await self.wazuh.list_agents(limit=limit)
@@ -67,6 +74,9 @@ class SocTools:
         source_ip: Optional[str] = None,
         brief: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
+        denied = self._guard("open_case")
+        if denied:
+            return denied
         return self.cases.open_case(
             title=title,
             alert_id=alert_id,
@@ -90,6 +100,9 @@ class SocTools:
         note: Optional[str] = None,
         author: str = "agent",
     ) -> dict[str, Any]:
+        denied = self._guard("update_case")
+        if denied:
+            return denied
         return self.cases.update_case(
             case_id,
             status=status,
@@ -114,6 +127,9 @@ class SocTools:
         rationale: str = "",
         auto_execute: bool = False,
     ) -> dict[str, Any]:
+        denied = self._guard("propose_action")
+        if denied:
+            return denied
         return self.cases.propose_action(
             case_id,
             action,
@@ -131,6 +147,9 @@ class SocTools:
         author: str = "human",
     ) -> dict[str, Any]:
         """Record an analyst closing outcome (no auto-containment)."""
+        denied = self._guard("approve_case")
+        if denied:
+            return denied
         return self.cases.resolve_proposal(
             case_id,
             disposition=disposition,
@@ -149,6 +168,9 @@ class SocTools:
         author: str = "human",
     ) -> dict[str, Any]:
         """Bulk close with an analyst outcome (no auto-containment)."""
+        denied = self._guard("approve_case")
+        if denied:
+            return denied
         return self.cases.resolve_proposals(
             case_ids,
             disposition=disposition,
@@ -166,6 +188,9 @@ class SocTools:
         disposition: Optional[str] = None,
     ) -> dict[str, Any]:
         """Close lab noise without HITL paging (no containment)."""
+        denied = self._guard("auto_close_noise")
+        if denied:
+            return denied
         return self.cases.auto_close_noise(
             case_id,
             note=note,
@@ -213,6 +238,9 @@ class SocTools:
         created_by: str = "human",
         expires_at: Optional[str] = None,
     ) -> dict[str, Any]:
+        denied = self._guard("add_suppression")
+        if denied:
+            return denied
         return self.cases.add_suppression(
             rule_id=rule_id,
             disposition=disposition,
@@ -223,6 +251,9 @@ class SocTools:
         )
 
     def disable_suppression(self, suppression_id: int) -> dict[str, Any]:
+        denied = self._guard("disable_suppression")
+        if denied:
+            return denied
         return self.cases.disable_suppression(suppression_id)
 
     def match_suppression(
@@ -273,6 +304,9 @@ class SocTools:
         severity: str = "medium",
         description: str = "",
     ) -> dict[str, Any]:
+        denied = self._guard("attach_alert")
+        if denied:
+            return denied
         return self.cases.attach_alert(
             case_id,
             alert_id=alert_id,
@@ -294,6 +328,10 @@ class SocTools:
         record: bool = False,
     ) -> dict[str, Any]:
         """Dry-run UFW deny plan. Optional record on the case. Never executes."""
+        if record:
+            denied = self._guard("record_containment_plan")
+            if denied:
+                return denied
         ip = source_ip
         if case_id is not None and not ip:
             case = self.cases.get_case(case_id)
@@ -319,6 +357,9 @@ class SocTools:
         author: str = "human",
     ) -> dict[str, Any]:
         """HITL execute of a planned UFW deny. Off unless CONTAINMENT_ENABLED."""
+        denied = self._guard("execute_containment")
+        if denied:
+            return denied
         case = self.cases.get_case(case_id)
         if case.get("error"):
             return case
@@ -338,6 +379,9 @@ class SocTools:
         return await self.vt.lookup(ioc, ioc_type=ioc_type)
 
     def upsert_entity(self, entity_type: str, value: str) -> dict[str, Any]:
+        denied = self._guard("upsert_entity")
+        if denied:
+            return denied
         return self.cases.upsert_entity(entity_type, value)
 
     def link_alert_to_entity(
@@ -347,6 +391,9 @@ class SocTools:
         *,
         case_id: Optional[int] = None,
     ) -> dict[str, Any]:
+        denied = self._guard("link_alert_to_entity")
+        if denied:
+            return denied
         return self.cases.link_alert_to_entity(entity_id, alert_id, case_id=case_id)
 
     def link_case_to_entity(
@@ -356,6 +403,9 @@ class SocTools:
         *,
         alert_id: Optional[str] = None,
     ) -> dict[str, Any]:
+        denied = self._guard("link_case_to_entity")
+        if denied:
+            return denied
         return self.cases.link_case_to_entity(entity_id, case_id, alert_id=alert_id)
 
     def find_related(
@@ -390,6 +440,9 @@ class SocTools:
         Used by autonomy on case open so a later nmap from the same Kali IP
         shows related cases via find_related.
         """
+        denied = self._guard("correlate_alert")
+        if denied:
+            return denied
         aid = (alert_id or alert.get("id") or "")
         aid = str(aid).strip() or None
         linked: list[dict[str, Any]] = []
@@ -432,8 +485,9 @@ class SocTools:
 _tools: Optional[SocTools] = None
 
 
-def get_tools() -> SocTools:
+def get_tools(role: str = INVESTIGATOR) -> SocTools:
+    """Process-local tools. MCP and scripts stay investigator unless role is set first."""
     global _tools
     if _tools is None:
-        _tools = SocTools()
+        _tools = SocTools(role=role)
     return _tools

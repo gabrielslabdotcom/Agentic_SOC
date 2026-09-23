@@ -22,6 +22,7 @@ from agentic_soc.analyst_outcomes import (  # noqa: E402
     coerce_analyst_disposition,
     skips_repeats,
 )
+from agentic_soc.policy import ANALYST  # noqa: E402
 from agentic_soc.tools import SocTools  # noqa: E402
 
 
@@ -66,7 +67,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    tools = SocTools()
+    tools = SocTools(role=ANALYST)
     before = tools.get_case(args.case_id)
     if before.get("error"):
         print(f"Case not found: {args.case_id}", file=sys.stderr)
