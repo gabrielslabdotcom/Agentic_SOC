@@ -457,6 +457,130 @@
       color: var(--muted);
       font-size: 0.8rem;
     }
+
+    .metrics-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .metric-chip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.45rem 0.75rem;
+      min-width: 5.5rem;
+    }
+
+    .metric-chip .n {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .metric-chip .lbl {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .suppress-panel {
+      margin-top: 0.75rem;
+      border-top: 1px solid var(--border);
+      padding-top: 0.75rem;
+    }
+
+    .suppress-panel h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .suppress-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .suppress-form input,
+    .suppress-form select {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .suppress-form .full {
+      grid-column: 1 / -1;
+    }
+
+    .suppress-list {
+      max-height: 180px;
+      overflow: auto;
+      font-size: 0.78rem;
+    }
+
+    .suppress-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      align-items: flex-start;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .suppress-row code {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+    }
+
+    .suggest-list {
+      margin-top: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .suggest-list button {
+      margin-left: 0.35rem;
+    }
+
+    .act-now {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 0.9rem;
+      margin-bottom: 0.9rem;
+      background: color-mix(in srgb, var(--panel) 80%, var(--bg));
+    }
+
+    .act-now h3 {
+      margin: 0 0 0.35rem;
+      font-size: 0.95rem;
+    }
+
+    .act-now ol {
+      margin: 0.4rem 0 0;
+      padding-left: 1.15rem;
+    }
+
+    .act-now li {
+      margin: 0.2rem 0;
+    }
+
+    details.raw-alert {
+      margin-top: 0.5rem;
+    }
+
+    details.raw-alert summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
   </style>
 </head>
 <body>
@@ -478,13 +602,22 @@
       <strong>False Positive</strong>, <strong>Benign</strong>,
       <strong>Informational</strong>, and <strong>Duplicate</strong> skip the same
       rule_id + source IP for 14 days. <strong>Confirmed Compromise</strong> does not skip.
-      Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
+      Analyst <strong>suppressions</strong> auto-close matching rules (any source or a
+      specific IP) before Discord / Cursor. Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
       are OR'd in without lowering that floor. Informational / false-positive
       cases may auto-close without Discord. UFW deny is a dry-run plan unless
       CONTAINMENT_ENABLED is on (still a separate HITL click). Containment stays off by default.
     </div>
     <div class="instance-banner mac-local" id="instance-banner">
       Identifying cases database…
+    </div>
+
+    <div class="metrics-strip" id="metrics-strip" aria-live="polite">
+      <div class="metric-chip"><div class="n" id="m-open">—</div><div class="lbl">Open</div></div>
+      <div class="metric-chip"><div class="n" id="m-auto">—</div><div class="lbl">Auto-closed</div></div>
+      <div class="metric-chip"><div class="n" id="m-human">—</div><div class="lbl">Human closed</div></div>
+      <div class="metric-chip"><div class="n" id="m-supp">—</div><div class="lbl">Suppressions</div></div>
+      <div class="metric-chip"><div class="n" id="m-fb">—</div><div class="lbl">Feedback</div></div>
     </div>
 
     <div class="layout">
@@ -532,6 +665,26 @@
         </div>
         <div class="panel-head" style="border-top:1px solid var(--border); border-bottom:none;">
           <span class="status-line" id="list-status">—</span>
+        </div>
+        <div class="suppress-panel">
+          <h3>Rule suppressions</h3>
+          <p class="status-line" style="margin:0 0 0.5rem;">
+            Auto-close before Discord/Cursor. Empty source = any IP. Confirmed compromise cannot suppress.
+          </p>
+          <div class="suppress-form">
+            <input type="text" id="supp-rule" placeholder="rule_id (e.g. 2501)" aria-label="Suppression rule id" />
+            <input type="text" id="supp-ip" placeholder="source IP (optional)" aria-label="Suppression source IP" />
+            <select id="supp-disp" aria-label="Suppression disposition">
+              <option value="informational">Informational</option>
+              <option value="false_positive">False positive</option>
+            </select>
+            <input type="text" id="supp-note" placeholder="note (optional)" aria-label="Suppression note" />
+            <button type="button" class="primary full" id="btn-add-supp">Add suppression</button>
+          </div>
+          <div id="suppress-list" class="suppress-list">
+            <div class="detail empty">Loading…</div>
+          </div>
+          <div class="suggest-list" id="suggest-list"></div>
         </div>
       </aside>
 
@@ -690,6 +843,125 @@
       }
     }
 
+    async function loadMetrics() {
+      try {
+        const m = await api("/tools/queue_metrics");
+        $("m-open").textContent = String(m.open ?? "—");
+        $("m-auto").textContent = String(m.auto_closed ?? "—");
+        $("m-human").textContent = String(m.human_closed ?? "—");
+        $("m-supp").textContent = String(m.active_suppressions ?? "—");
+        $("m-fb").textContent = String(m.feedback_total ?? "—");
+        const outcomes = m.human_outcomes || {};
+        const bits = Object.keys(outcomes).sort().map((k) => k + "=" + outcomes[k]);
+        if (bits.length) {
+          $("m-human").title = bits.join(", ");
+        }
+      } catch (e) {
+        $("m-open").textContent = "?";
+      }
+    }
+
+    async function loadSuppressions() {
+      try {
+        const data = await api("/tools/list_suppressions?limit=50");
+        const items = data.suppressions || [];
+        const box = $("suppress-list");
+        if (!items.length) {
+          box.innerHTML = `<div class="detail empty">No active suppressions.</div>`;
+        } else {
+          box.innerHTML = items.map((s) => {
+            const src = s.any_source ? "any source" : (s.source_ip || "—");
+            const exp = s.expires_at ? (" · exp " + escapeHtml(s.expires_at)) : "";
+            return `
+              <div class="suppress-row" data-id="${s.id}">
+                <div>
+                  <code>#${s.id}</code> rule <code>${escapeHtml(s.rule_id)}</code>
+                  · ${escapeHtml(src)} · ${escapeHtml(s.disposition || "")}${exp}
+                  ${s.note ? `<div class="status-line">${escapeHtml(s.note)}</div>` : ""}
+                </div>
+                <button type="button" class="ghost btn-disable-supp" data-id="${s.id}">Disable</button>
+              </div>`;
+          }).join("");
+          box.querySelectorAll(".btn-disable-supp").forEach((btn) => {
+            btn.addEventListener("click", () => disableSuppression(Number(btn.dataset.id)));
+          });
+        }
+        const sug = await api("/tools/suppression_suggestions?min_count=2&limit=8");
+        const suggestions = sug.suggestions || [];
+        const sugBox = $("suggest-list");
+        if (!suggestions.length) {
+          sugBox.innerHTML = "";
+        } else {
+          sugBox.innerHTML =
+            "<div>Suggestions from repeated feedback (review before adding):</div>" +
+            suggestions.map((s) => {
+              const src = s.any_source ? "" : (s.source_ip || "");
+              const label = "rule " + s.rule_id + (src ? (" @ " + src) : " (any)") + " ×" + s.count;
+              return `<div>${escapeHtml(label)}
+                <button type="button" class="ghost btn-seed-supp"
+                  data-rule="${escapeHtml(s.rule_id)}"
+                  data-ip="${escapeHtml(src)}"
+                  data-disp="${escapeHtml(s.suggested_disposition || "informational")}">Add</button>
+              </div>`;
+            }).join("");
+          sugBox.querySelectorAll(".btn-seed-supp").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              $("supp-rule").value = btn.dataset.rule || "";
+              $("supp-ip").value = btn.dataset.ip || "";
+              $("supp-disp").value = btn.dataset.disp || "informational";
+              $("supp-note").value = "seeded from feedback suggestion";
+            });
+          });
+        }
+      } catch (e) {
+        $("suppress-list").innerHTML =
+          `<div class="detail empty">Suppressions unavailable: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function addSuppression() {
+      const rule_id = ($("supp-rule").value || "").trim();
+      if (!rule_id) {
+        toast("rule_id required", "error");
+        return;
+      }
+      const source_ip = ($("supp-ip").value || "").trim() || null;
+      const disposition = $("supp-disp").value || "informational";
+      const note = ($("supp-note").value || "").trim();
+      try {
+        await api("/tools/add_suppression", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rule_id,
+            source_ip,
+            disposition,
+            note,
+            created_by: "dashboard",
+          }),
+        });
+        toast("Suppression added for rule " + rule_id, "ok");
+        $("supp-rule").value = "";
+        $("supp-ip").value = "";
+        $("supp-note").value = "";
+        await loadSuppressions();
+        await loadMetrics();
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    async function disableSuppression(id) {
+      try {
+        await api("/tools/disable_suppression/" + id, { method: "POST" });
+        toast("Suppression #" + id + " disabled", "ok");
+        await loadSuppressions();
+        await loadMetrics();
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
     function renderCaseList(cases) {
       if (!cases.length) {
         $("case-list").innerHTML = `<div class="detail empty">No cases for this filter.</div>`;
@@ -708,6 +980,9 @@
                 ${badge(statusClass(c.status), c.status)}
                 ${badge(sevClass(c.severity), c.severity)}
                 ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
+                ${c.rule_id ? `<span>rule ${escapeHtml(c.rule_id)}</span>` : ""}
+                ${(c.brief && c.brief.actors && c.brief.actors.user) ? `<span>user ${escapeHtml(c.brief.actors.user)}</span>` : ""}
+                ${c.source_ip ? `<span>${escapeHtml(c.source_ip)}</span>` : ""}
                 <span>${escapeHtml(c.agent_name || "—")}</span>
               </div>
             </button>
@@ -793,6 +1068,8 @@
         );
         selectedIds.clear();
         await loadCases();
+        await loadMetrics();
+        await loadSuppressions();
         if (selectedId != null) await loadCaseDetail(selectedId, false);
       } catch (e) {
         toast(e.message, "error");
@@ -810,7 +1087,10 @@
             alertBlock = `
               <div class="section">
                 <h3>Linked Wazuh alert</h3>
-                <div class="prose">${escapeHtml(JSON.stringify(alert, null, 2))}</div>
+                <details class="raw-alert">
+                  <summary>Raw alert</summary>
+                  <div class="prose">${escapeHtml(JSON.stringify(alert, null, 2))}</div>
+                </details>
               </div>`;
           } catch (e) {
             alertBlock = `
@@ -957,6 +1237,30 @@
             </p>
           </div>`;
 
+        const brief = c.brief || {};
+        const actors = brief.actors || {};
+        const rule = brief.rule || {};
+        const steps = (brief.do_next || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("");
+        const wazuh = brief.wazuh_url
+          ? `<p class="status-line"><a href="${escapeHtml(brief.wazuh_url)}" target="_blank" rel="noopener">Open Wazuh</a></p>`
+          : "";
+        const actNow = `
+          <div class="act-now">
+            <h3>Act now</h3>
+            <p>${escapeHtml(brief.headline || c.title || "")}</p>
+            <dl class="kv">
+              <dt>Source</dt><dd>${escapeHtml(actors.source_ip || c.source_ip || "—")}</dd>
+              <dt>User</dt><dd>${escapeHtml(actors.user || "—")}</dd>
+              <dt>Host</dt><dd>${escapeHtml(actors.agent || c.agent_name || "—")}</dd>
+              <dt>Rule</dt><dd>${escapeHtml((rule.id || c.rule_id || "—") + (rule.level != null ? " · level " + rule.level : ""))}</dd>
+            </dl>
+            ${brief.why && brief.why.length ? `<p class="status-line">${escapeHtml(brief.why.join("; "))}</p>` : ""}
+            ${brief.evidence ? `<p class="prose">${escapeHtml(brief.evidence)}</p>` : ""}
+            ${brief.vt ? `<p class="status-line">VirusTotal: ${escapeHtml(brief.vt)}</p>` : ""}
+            ${wazuh}
+            ${steps ? `<ol>${steps}</ol>` : ""}
+          </div>`;
+
         $("detail").className = "detail";
         $("detail").innerHTML = `
           <h2 class="detail-title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</h2>
@@ -966,25 +1270,11 @@
             ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
             ${c.analyst_disposition ? badge(dispClass(c.analyst_disposition), "analyst:" + c.analyst_disposition) : ""}
           </div>
-          <dl class="kv">
-            <dt>Agent</dt><dd>${escapeHtml(c.agent_name || "—")}</dd>
-            <dt>Alert ID</dt><dd>${escapeHtml(c.alert_id || "—")}</dd>
-            <dt>Created</dt><dd>${escapeHtml(c.created_at || "—")}</dd>
-            <dt>Updated</dt><dd>${escapeHtml(c.updated_at || "—")}</dd>
-          </dl>
-          <div class="section">
-            <h3>Summary</h3>
-            <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
-          </div>
-          <div class="section">
-            <h3>Recommended action</h3>
-            <div class="prose">${escapeHtml(c.recommended_action || "(none)")}</div>
-          </div>
+          ${actNow}
+          ${decisionBlock}
           ${relatedBlock}
-          ${alertBlock}
           ${investigationBlock}
           ${containmentBlock}
-          ${decisionBlock}
           <div class="section">
             <h3>Enrich IOC</h3>
             <div class="enrich-row">
@@ -993,6 +1283,12 @@
             </div>
             <pre class="prose" id="enrich-out" style="margin-top:0.5rem; display:none"></pre>
           </div>
+          <details class="raw-alert">
+            <summary>Debug summary</summary>
+            <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
+            <p class="status-line">Recommended: ${escapeHtml(c.recommended_action || "(none)")}</p>
+          </details>
+          ${alertBlock}
           <div class="section">
             <h3>Notes</h3>
             ${notesHtml}
@@ -1082,6 +1378,8 @@
         });
         toast("Recorded " + disposition + " (no containment).", "ok");
         await loadCases();
+        await loadMetrics();
+        await loadSuppressions();
         await loadCaseDetail(caseId, false);
       } catch (e) {
         toast(e.message, "error");
@@ -1109,7 +1407,10 @@
     function scheduleRefresh() {
       clearInterval(refreshTimer);
       if ($("auto-refresh").checked) {
-        refreshTimer = setInterval(loadCases, REFRESH_MS);
+        refreshTimer = setInterval(() => {
+          loadCases();
+          loadMetrics();
+        }, REFRESH_MS);
       }
     }
 
@@ -1117,13 +1418,20 @@
       selectedIds.clear();
       loadCases();
     });
-    $("btn-refresh").addEventListener("click", loadCases);
+    $("btn-refresh").addEventListener("click", () => {
+      loadCases();
+      loadMetrics();
+      loadSuppressions();
+    });
     $("auto-refresh").addEventListener("change", scheduleRefresh);
     $("select-all").addEventListener("change", (ev) => toggleSelectAll(ev.target.checked));
     $("btn-bulk-apply").addEventListener("click", () => bulkDecide());
+    $("btn-add-supp").addEventListener("click", () => addSuppression());
 
     loadConfig().then(() => {
       loadCases();
+      loadMetrics();
+      loadSuppressions();
       scheduleRefresh();
     });
   </script>

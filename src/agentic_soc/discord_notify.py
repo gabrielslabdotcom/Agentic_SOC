@@ -271,66 +271,62 @@ class DiscordNotifier:
             vt_text = "none / skipped"
 
         snippet = (case.get("full_log") or case.get("log_snippet") or "").strip()
-        if snippet:
-            snippet = " ".join(snippet.split())
+        brief = case.get("brief") if isinstance(case.get("brief"), dict) else {}
+        actors = brief.get("actors") if isinstance(brief.get("actors"), dict) else {}
+        evidence = (brief.get("evidence") or snippet or "").strip()
+        if evidence:
+            evidence = " ".join(evidence.split())
+        why_bits = brief.get("why") if isinstance(brief.get("why"), list) else None
+        if why_bits:
+            why = "; ".join(str(r) for r in why_bits if r) or why
+        do_next = brief.get("do_next") if isinstance(brief.get("do_next"), list) else []
+        next_steps = str(case.get("analyst_next_steps") or "Review in the analyst UI. Do not execute containment.")
+        if do_next:
+            next_steps = "\n".join(f"{i}. {step}" for i, step in enumerate(do_next, start=1))
+        source = actors.get("source_ip") or case.get("source_ip") or "—"
+        user = actors.get("user") or case.get("user") or "—"
+        agent = actors.get("agent") or case.get("agent_name") or "—"
+        vt_from_brief = (brief.get("vt") or "").strip()
+        if vt_from_brief:
+            vt_text = vt_from_brief
 
         ui_url = analyst_ui_base_url(self.settings)
-        close_cmd = (
-            f"python scripts/approve_case.py --case-id {case_id} "
-            f"--disposition benign --note \"reviewed from Discord\""
-        )
-        next_steps = case.get("analyst_next_steps") or (
-            "1) Confirm alert in Wazuh dashboard\n"
-            "2) Review IOCs / full_log below\n"
-            f"3) Open {ui_url}/ or use the buttons below — no containment runs"
-        )
-        decision_legend = (
-            "**False Positive** — detector was wrong. Skips repeats.\n"
-            "**Benign** — real event, authorized/expected (lab nmap). Skips repeats.\n"
-            "**Informational** — awareness only. Skips repeats.\n"
-            "**Duplicate** — already triaged. Skips repeats.\n"
-            "**Confirmed Compromise** — true incident. Does **not** skip. "
-            "**None of these execute containment.**"
-        )
-
+        wazuh = (brief.get("wazuh_url") or "").strip()
         fields = [
             _field("Disposition", case.get("disposition"), inline=True),
             _field("Severity", severity, inline=True),
-            _field("Confidence", case.get("confidence") or "—", inline=True),
-            _field("Why opened", why, inline=False, limit=900),
+            _field("Source", source, inline=True),
+            _field("User", user, inline=True),
+            _field("Agent", agent, inline=True),
             _field("Rule", rule_line, inline=True),
             _field("When", case.get("timestamp") or "—", inline=True),
-            _field("Agent", case.get("agent_name") or "—", inline=True),
-            _field("Alert id", f"`{case.get('alert_id') or '—'}`", inline=True),
-            _field("IOCs", ioc_text, inline=False, limit=900),
-            _field("VirusTotal", vt_text, inline=False, limit=500),
-            _field(
-                "Recommended action",
-                case.get("recommended_action") or "investigate_and_document",
-                inline=False,
-            ),
-            _field("Open case", f"[Analyst UI]({ui_url}/)", inline=False, limit=200),
-            _field("Analyst next steps", next_steps, inline=False, limit=900),
-            _field("Analyst outcomes", decision_legend, inline=False, limit=1024),
-            _field(
-                "Close (CLI)",
-                "Record-only — status = outcome slug, note only.\n"
-                f"`{close_cmd}`",
-                inline=False,
-                limit=900,
-            ),
+            _field("Why", why, inline=False, limit=500),
         ]
-        if snippet:
-            fields.append(_field("Log snippet", f"```{snippet[:900]}```", inline=False, limit=1000))
+        if evidence:
+            fields.append(_field("Evidence", f"`{_clip(evidence, 180)}`", inline=False, limit=220))
+        if vt_text and vt_text not in ("none", "none / skipped"):
+            fields.append(_field("VirusTotal", vt_text, inline=False, limit=300))
+        fields.append(
+            _field(
+                "Recommended",
+                case.get("recommended_action") or brief.get("recommended_action") or "investigate_and_document",
+                inline=False,
+                limit=200,
+            )
+        )
+        open_bits = f"[Analyst UI]({ui_url}/)"
+        if wazuh:
+            open_bits += f" · [Wazuh]({wazuh})"
+        fields.append(_field("Open", open_bits, inline=False, limit=300))
+        fields.append(_field("Do next", next_steps, inline=False, limit=900))
 
         footer_text = (
-            "Lab autonomy — containment NOT executed. Use outcome buttons or approve_case.py."
-            if self.bot_configured
-            else "Lab autonomy — containment NOT executed. Use approve_case.py."
+            "Propose only — outcome buttons record the decision. Containment is not executed."
         )
+        headline = brief.get("headline") or title
         return {
             "title": f"SOC case opened #{case_id}",
-            "description": _clip(title, 500),
+            "description": _clip(headline, 300),
             "color": color,
             "fields": fields[:25],
             "footer": {"text": footer_text},

@@ -13,11 +13,14 @@ from agentic_soc.analyst_outcomes import (
     feedback_approved_int,
     skips_repeats,
 )
+from agentic_soc.triage import fallback_brief_from_case
 
 ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
 # host is stored for inventory, but case-to-case expansion ignores it so every
 # alert on pop-os-native does not show up as "related".
 _FOLLOW_TYPES_FROM_CASE = frozenset({"ip", "user", "hash", "domain"})
+# Analyst-managed suppressions force auto-close as these dispositions only.
+SUPPRESSION_DISPOSITIONS = frozenset({"informational", "false_positive"})
 LOG = logging.getLogger(__name__)
 
 
@@ -99,6 +102,7 @@ class CaseStore:
             )
             self._ensure_unique_alert_id(conn)
             self._ensure_feedback_schema(conn)
+            self._ensure_suppressions_schema(conn)
 
     @staticmethod
     def _ensure_unique_alert_id(conn: sqlite3.Connection) -> None:
@@ -151,6 +155,8 @@ class CaseStore:
             conn.execute("ALTER TABLE cases ADD COLUMN source_ip TEXT")
         if "analyst_disposition" not in cols:
             conn.execute("ALTER TABLE cases ADD COLUMN analyst_disposition TEXT")
+        if "brief_json" not in cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN brief_json TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS triage_feedback (
@@ -179,8 +185,45 @@ class CaseStore:
         )
 
     @staticmethod
+    def _ensure_suppressions_schema(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rule_suppressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id TEXT NOT NULL,
+                source_ip TEXT,
+                disposition TEXT NOT NULL,
+                note TEXT,
+                created_by TEXT NOT NULL DEFAULT 'human',
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                disabled_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rule_suppressions_rule
+            ON rule_suppressions(rule_id, disabled_at)
+            """
+        )
+
+    @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _parse_ts(value: str) -> Optional[float]:
+        ts = (value or "").strip()
+        if not ts:
+            return None
+        try:
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.timestamp()
+        except ValueError:
+            return None
 
     def open_case(
         self,
@@ -193,11 +236,13 @@ class CaseStore:
         recommended_action: str = "",
         rule_id: Optional[str] = None,
         source_ip: Optional[str] = None,
+        brief: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         now = self._now()
         aid = (alert_id or "").strip() or None
         rid = (rule_id or "").strip() or None
         sip = (source_ip or "").strip() or None
+        brief_json = json.dumps(brief, default=str) if brief else None
         with self._connect() as conn:
             try:
                 cur = conn.execute(
@@ -205,8 +250,8 @@ class CaseStore:
                     INSERT INTO cases (
                         title, status, severity, alert_id, agent_name,
                         summary, recommended_action, created_at, updated_at,
-                        rule_id, source_ip
-                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        rule_id, source_ip, brief_json
+                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         title,
@@ -219,6 +264,7 @@ class CaseStore:
                         now,
                         rid,
                         sip,
+                        brief_json,
                     ),
                 )
                 case_id = cur.lastrowid
@@ -291,7 +337,20 @@ class CaseStore:
             ).fetchall()
         case = dict(row)
         case["notes"] = [dict(n) for n in notes]
+        case["brief"] = self._brief_for(case)
         return case
+
+    @staticmethod
+    def _brief_for(case: dict[str, Any]) -> dict[str, Any]:
+        raw = case.get("brief_json")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("headline"):
+                return parsed
+        return fallback_brief_from_case(case)
 
     def list_cases(self, status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
         with self._connect() as conn:
@@ -305,7 +364,10 @@ class CaseStore:
                     "SELECT * FROM cases ORDER BY id DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
-        return {"cases": [dict(r) for r in rows], "count": len(rows)}
+        cases = [dict(r) for r in rows]
+        for item in cases:
+            item["brief"] = self._brief_for(item)
+        return {"cases": cases, "count": len(cases)}
 
     def propose_action(
         self,
@@ -465,19 +527,24 @@ class CaseStore:
         *,
         note: str = "",
         author: str = "autonomy_loop",
+        disposition: Optional[str] = None,
+        close_status: str = "auto_closed",
     ) -> dict[str, Any]:
-        """Close a heuristic-noise case without paging Discord / Cursor.
+        """Close a heuristic-noise or suppressed case without paging Discord / Cursor.
 
-        Records feedback as a reject so the same rule_id+source_ip is skipped.
-        Never executes containment.
+        Records feedback so related skip keys can fire. Never executes containment.
         """
         case = self.get_case(case_id)
         if case.get("error"):
             return case
+        outcome = (disposition or INFORMATIONAL).strip().lower()
+        if outcome not in SUPPRESSION_DISPOSITIONS:
+            outcome = INFORMATIONAL
         proposed = case.get("recommended_action") or "(none)"
         detail = note.strip() or "heuristic noise auto-closed (no HITL page)"
         audit = (
             f"[auto_closed_noise] CLOSED\n"
+            f"analyst_disposition={outcome}\n"
             f"proposed_action={proposed}\n"
             f"note={detail}\n"
             f"containment=not_executed\n"
@@ -485,14 +552,16 @@ class CaseStore:
         )
         updated = self.update_case(
             case_id,
-            status="auto_closed",
+            status=close_status,
+            disposition=outcome,
+            analyst_disposition=outcome,
             note=audit,
             author=author,
         )
         try:
             self.record_feedback(
                 case_id,
-                analyst_disposition=INFORMATIONAL,
+                analyst_disposition=outcome,
                 note=detail,
             )
         except Exception:
@@ -626,6 +695,324 @@ class CaseStore:
             "rejected": rejected_n,
             "items": items,
         }
+
+    def queue_metrics(self) -> dict[str, Any]:
+        """Counts for the analyst UI strip (open / auto-closed / human outcomes)."""
+        human_statuses = frozenset(
+            {
+                "false_positive",
+                "benign",
+                "informational",
+                "duplicate",
+                "confirmed_compromise",
+                "approved",
+                "rejected",
+            }
+        )
+        with self._connect() as conn:
+            status_rows = conn.execute(
+                "SELECT status, COUNT(*) AS n FROM cases GROUP BY status"
+            ).fetchall()
+            by_status = {str(r["status"] or ""): int(r["n"] or 0) for r in status_rows}
+            cases_total = int(
+                conn.execute("SELECT COUNT(*) AS n FROM cases").fetchone()["n"] or 0
+            )
+            feedback_total = int(
+                conn.execute("SELECT COUNT(*) AS n FROM triage_feedback").fetchone()["n"]
+                or 0
+            )
+            ad_rows = conn.execute(
+                """
+                SELECT analyst_disposition, COUNT(*) AS n
+                FROM cases
+                WHERE analyst_disposition IS NOT NULL
+                  AND trim(analyst_disposition) != ''
+                  AND status != 'auto_closed'
+                GROUP BY analyst_disposition
+                """
+            ).fetchall()
+            human_outcomes = {
+                str(r["analyst_disposition"]): int(r["n"] or 0) for r in ad_rows
+            }
+            active_suppressions = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM rule_suppressions
+                    WHERE disabled_at IS NULL OR trim(disabled_at) = ''
+                    """
+                ).fetchone()["n"]
+                or 0
+            )
+        human_closed = sum(int(by_status.get(s) or 0) for s in human_statuses)
+        return {
+            "cases_total": cases_total,
+            "open": int(by_status.get("open") or 0),
+            "auto_closed": int(by_status.get("auto_closed") or 0),
+            "human_closed": human_closed,
+            "human_outcomes": human_outcomes,
+            "by_status": by_status,
+            "feedback_total": feedback_total,
+            "active_suppressions": active_suppressions,
+            "legacy_approved": int(by_status.get("approved") or 0),
+            "legacy_rejected": int(by_status.get("rejected") or 0),
+        }
+
+    def list_suppressions(
+        self,
+        *,
+        include_disabled: bool = False,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), 500))
+        with self._connect() as conn:
+            if include_disabled:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM rule_suppressions
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM rule_suppressions
+                    WHERE disabled_at IS NULL OR trim(disabled_at) = ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+        items = [dict(r) for r in rows]
+        now_ts = datetime.now(timezone.utc).timestamp()
+        for item in items:
+            item["active"] = self._suppression_row_active(item, now_ts=now_ts)
+            item["any_source"] = not bool((item.get("source_ip") or "").strip())
+        return {"suppressions": items, "count": len(items)}
+
+    def add_suppression(
+        self,
+        *,
+        rule_id: str,
+        disposition: str = "informational",
+        source_ip: Optional[str] = None,
+        note: str = "",
+        created_by: str = "human",
+        expires_at: Optional[str] = None,
+    ) -> dict[str, Any]:
+        rid = (rule_id or "").strip()
+        if not rid:
+            return {"error": "rule_id required"}
+        disp = (disposition or "").strip().lower()
+        if disp not in SUPPRESSION_DISPOSITIONS:
+            return {
+                "error": (
+                    f"disposition must be one of {sorted(SUPPRESSION_DISPOSITIONS)}; "
+                    "confirmed_compromise cannot create a suppression"
+                ),
+                "disposition": disposition,
+            }
+        sip = (source_ip or "").strip() or None
+        exp = (expires_at or "").strip() or None
+        if exp is not None and self._parse_ts(exp) is None:
+            return {"error": "expires_at must be ISO-8601", "expires_at": expires_at}
+        now = self._now()
+        with self._connect() as conn:
+            # Re-enable an identical active row instead of duplicating
+            existing = conn.execute(
+                """
+                SELECT * FROM rule_suppressions
+                WHERE rule_id = ?
+                  AND ifnull(source_ip, '') = ifnull(?, '')
+                  AND disposition = ?
+                  AND (disabled_at IS NULL OR trim(disabled_at) = '')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (rid, sip, disp),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE rule_suppressions
+                    SET note = ?, created_by = ?, expires_at = ?, disabled_at = NULL
+                    WHERE id = ?
+                    """,
+                    (note or existing["note"], created_by, exp, int(existing["id"])),
+                )
+                row = conn.execute(
+                    "SELECT * FROM rule_suppressions WHERE id = ?",
+                    (int(existing["id"]),),
+                ).fetchone()
+                item = dict(row)
+                item["reused"] = True
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO rule_suppressions (
+                        rule_id, source_ip, disposition, note,
+                        created_by, created_at, expires_at, disabled_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (rid, sip, disp, note, created_by, now, exp),
+                )
+                row = conn.execute(
+                    "SELECT * FROM rule_suppressions WHERE id = ?",
+                    (cur.lastrowid,),
+                ).fetchone()
+                item = dict(row)
+                item["reused"] = False
+        item["active"] = True
+        item["any_source"] = not bool((item.get("source_ip") or "").strip())
+        return item
+
+    def disable_suppression(self, suppression_id: int) -> dict[str, Any]:
+        now = self._now()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM rule_suppressions WHERE id = ?",
+                (suppression_id,),
+            ).fetchone()
+            if not row:
+                return {"error": "suppression not found", "id": suppression_id}
+            conn.execute(
+                "UPDATE rule_suppressions SET disabled_at = ? WHERE id = ?",
+                (now, suppression_id),
+            )
+            updated = conn.execute(
+                "SELECT * FROM rule_suppressions WHERE id = ?",
+                (suppression_id,),
+            ).fetchone()
+        item = dict(updated)
+        item["active"] = False
+        item["any_source"] = not bool((item.get("source_ip") or "").strip())
+        return item
+
+    def match_suppression(
+        self,
+        *,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Return the best active suppression for this rule (+ optional source).
+
+        Empty suppression source_ip means "any source" (including alerts with
+        no extracted IP). Prefer an exact source match over any-source.
+        """
+        rid = (rule_id or "").strip()
+        sip = (source_ip or "").strip()
+        if not rid:
+            return {"match": False, "reason": "need_rule_id"}
+        now_ts = datetime.now(timezone.utc).timestamp()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM rule_suppressions
+                WHERE rule_id = ?
+                  AND (disabled_at IS NULL OR trim(disabled_at) = '')
+                ORDER BY id DESC
+                """,
+                (rid,),
+            ).fetchall()
+        exact: Optional[dict[str, Any]] = None
+        any_source: Optional[dict[str, Any]] = None
+        for row in rows:
+            item = dict(row)
+            if not self._suppression_row_active(item, now_ts=now_ts):
+                continue
+            row_sip = (item.get("source_ip") or "").strip()
+            if row_sip:
+                if sip and row_sip == sip:
+                    exact = item
+                    break
+            else:
+                if any_source is None:
+                    any_source = item
+        chosen = exact or any_source
+        if not chosen:
+            return {"match": False, "reason": "no_match", "rule_id": rid, "source_ip": sip or None}
+        chosen["active"] = True
+        chosen["any_source"] = not bool((chosen.get("source_ip") or "").strip())
+        return {
+            "match": True,
+            "reason": "exact_source" if exact else "any_source",
+            "rule_id": rid,
+            "source_ip": sip or None,
+            "suppression": chosen,
+            "disposition": chosen.get("disposition"),
+        }
+
+    def suppression_suggestions(
+        self,
+        *,
+        min_count: int = 2,
+        days: int = 30,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Rule_ids repeatedly closed as skippable — for analyst review, not auto-add."""
+        min_count = max(2, int(min_count))
+        days = max(1, int(days))
+        limit = max(1, min(int(limit), 100))
+        cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+        tallies: dict[tuple[str, str], int] = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT rule_id, source_ip, analyst_disposition, approved, created_at
+                FROM triage_feedback
+                WHERE rule_id IS NOT NULL AND trim(rule_id) != ''
+                """
+            ).fetchall()
+        for row in rows:
+            ad = (row["analyst_disposition"] or "").strip().lower()
+            if ad:
+                if ad not in {"false_positive", "benign", "informational", "duplicate"}:
+                    continue
+            elif int(row["approved"] or 0) != 0:
+                continue
+            ts = self._parse_ts(str(row["created_at"] or ""))
+            if ts is not None and ts < cutoff:
+                continue
+            rid = str(row["rule_id"] or "").strip()
+            sip = str(row["source_ip"] or "").strip()
+            key = (rid, sip)
+            tallies[key] = tallies.get(key, 0) + 1
+        suggestions = [
+            {
+                "rule_id": rid,
+                "source_ip": sip or None,
+                "any_source": not bool(sip),
+                "count": n,
+                "suggested_disposition": "informational",
+            }
+            for (rid, sip), n in sorted(tallies.items(), key=lambda x: (-x[1], x[0][0]))
+            if n >= min_count
+        ][:limit]
+        return {
+            "suggestions": suggestions,
+            "count": len(suggestions),
+            "min_count": min_count,
+            "days": days,
+        }
+
+    def _suppression_row_active(
+        self,
+        row: dict[str, Any],
+        *,
+        now_ts: Optional[float] = None,
+    ) -> bool:
+        if (row.get("disabled_at") or "").strip():
+            return False
+        exp = (row.get("expires_at") or "").strip()
+        if not exp:
+            return True
+        exp_ts = self._parse_ts(exp)
+        if exp_ts is None:
+            return True
+        if now_ts is None:
+            now_ts = datetime.now(timezone.utc).timestamp()
+        return exp_ts >= now_ts
 
     def upsert_entity(self, entity_type: str, value: str) -> dict[str, Any]:
         """Insert or refresh an entity (ip / user / host / hash / domain)."""

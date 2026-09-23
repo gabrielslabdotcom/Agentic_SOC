@@ -1,0 +1,471 @@
+{
+  "version": 1,
+  "description": "Sanitized labeled alerts for triage regression. Patterns drawn from the Pop lab queue (rule 2501 auth floods, UFW aggregates, router/CIS noise) with documentation-range IPs only.",
+  "thresholds": {
+    "min_disposition_accuracy": 0.8,
+    "min_open_case_accuracy": 0.85
+  },
+  "alerts": [
+    {
+      "id": "tp-port-scan-multi",
+      "category": "port_scan",
+      "alert": {
+        "id": "tp-port-scan-multi",
+        "rule_id": "100101",
+        "rule_level": 10,
+        "description": "Possible port scan: multiple UFW blocks from same source.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "UFW BLOCK SRC=198.51.100.20 DST=10.0.0.5",
+        "raw": {
+          "rule": {
+            "id": "100101",
+            "level": 10,
+            "description": "Possible port scan: multiple UFW blocks from same source.",
+            "groups": [
+              "firewall",
+              "ufw",
+              "attack"
+            ]
+          },
+          "full_log": "UFW BLOCK SRC=198.51.100.20 DST=10.0.0.5",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "true_positive",
+        "open_case": true
+      }
+    },
+    {
+      "id": "sus-port-scan-lab",
+      "category": "port_scan",
+      "alert": {
+        "id": "sus-port-scan-lab",
+        "rule_id": "100102",
+        "rule_level": 8,
+        "description": "Possible port scan (lab): repeated UFW blocks from same source.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "UFW BLOCK SRC=198.51.100.21 DST=10.0.0.5",
+        "raw": {
+          "rule": {
+            "id": "100102",
+            "level": 8,
+            "description": "Possible port scan (lab): repeated UFW blocks from same source.",
+            "groups": [
+              "firewall",
+              "ufw"
+            ]
+          },
+          "full_log": "UFW BLOCK SRC=198.51.100.21 DST=10.0.0.5",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "suspicious",
+        "open_case": true
+      }
+    },
+    {
+      "id": "info-lone-ufw",
+      "category": "ufw_noise",
+      "alert": {
+        "id": "info-lone-ufw",
+        "rule_id": "100100",
+        "rule_level": 5,
+        "description": "UFW firewall block event.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "UFW BLOCK SRC=198.51.100.22 DST=10.0.0.5 PROTO=TCP DPT=22",
+        "raw": {
+          "rule": {
+            "id": "100100",
+            "level": 5,
+            "description": "UFW firewall block event.",
+            "groups": [
+              "firewall",
+              "ufw"
+            ]
+          },
+          "full_log": "UFW BLOCK SRC=198.51.100.22 DST=10.0.0.5 PROTO=TCP DPT=22",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "informational",
+        "open_case": false
+      }
+    },
+    {
+      "id": "sus-auth-syslog",
+      "category": "auth_failure",
+      "alert": {
+        "id": "sus-auth-syslog",
+        "rule_id": "2501",
+        "rule_level": 5,
+        "description": "syslog: User authentication failure.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "pam_unix(sshd:auth): authentication failure; user=unknown",
+        "raw": {
+          "rule": {
+            "id": "2501",
+            "level": 5,
+            "description": "syslog: User authentication failure.",
+            "groups": [
+              "syslog",
+              "access_control",
+              "authentication_failed"
+            ]
+          },
+          "full_log": "pam_unix(sshd:auth): authentication failure; user=unknown",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "suspicious",
+        "open_case": true
+      },
+      "notes": "Pop queue dominated by rule 2501; often missing source_ip"
+    },
+    {
+      "id": "sus-auth-sshd",
+      "category": "auth_failure",
+      "alert": {
+        "id": "sus-auth-sshd",
+        "rule_id": "5710",
+        "rule_level": 5,
+        "description": "sshd: Attempt to login using a non-existent user",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "Invalid user labprobe from 198.51.100.30",
+        "raw": {
+          "rule": {
+            "id": "5710",
+            "level": 5,
+            "description": "sshd: Attempt to login using a non-existent user",
+            "groups": [
+              "sshd",
+              "authentication_failed"
+            ]
+          },
+          "full_log": "Invalid user labprobe from 198.51.100.30",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "suspicious",
+        "open_case": true
+      }
+    },
+    {
+      "id": "sus-pam-login",
+      "category": "auth_failure",
+      "alert": {
+        "id": "sus-pam-login",
+        "rule_id": "5503",
+        "rule_level": 5,
+        "description": "PAM: User login failed.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "pam_unix(login:auth): authentication failure",
+        "raw": {
+          "rule": {
+            "id": "5503",
+            "level": 5,
+            "description": "PAM: User login failed.",
+            "groups": [
+              "pam",
+              "authentication_failed"
+            ]
+          },
+          "full_log": "pam_unix(login:auth): authentication failure",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "suspicious",
+        "open_case": true
+      }
+    },
+    {
+      "id": "info-router-asus",
+      "category": "router_noise",
+      "alert": {
+        "id": "info-router-asus",
+        "rule_id": "100200",
+        "rule_level": 3,
+        "description": "ASUS RT-AX3000 remote syslog",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "bwdpi: hour monitor: fun bitmap",
+        "raw": {
+          "rule": {
+            "id": "100200",
+            "level": 3,
+            "description": "ASUS RT-AX3000 remote syslog",
+            "groups": [
+              "asus",
+              "syslog"
+            ]
+          },
+          "full_log": "bwdpi: hour monitor: fun bitmap",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "informational",
+        "open_case": false
+      }
+    },
+    {
+      "id": "info-cis-sca",
+      "category": "compliance",
+      "alert": {
+        "id": "info-cis-sca",
+        "rule_id": "19008",
+        "rule_level": 12,
+        "description": "CIS: Ensure SSH Root Login is Disabled",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "SCA check result: failed",
+        "raw": {
+          "rule": {
+            "id": "19008",
+            "level": 12,
+            "description": "CIS: Ensure SSH Root Login is Disabled",
+            "groups": [
+              "cis",
+              "sca"
+            ]
+          },
+          "full_log": "SCA check result: failed",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": [
+          "informational",
+          "false_positive"
+        ],
+        "open_case": true
+      }
+    },
+    {
+      "id": "fp-agent-queue",
+      "category": "agent_capacity",
+      "alert": {
+        "id": "fp-agent-queue",
+        "rule_id": "203",
+        "rule_level": 7,
+        "description": "Agent event queue is full. Events may be lost.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "wazuh-agent: Agent event queue is full",
+        "raw": {
+          "rule": {
+            "id": "203",
+            "level": 7,
+            "description": "Agent event queue is full. Events may be lost.",
+            "groups": [
+              "agent"
+            ]
+          },
+          "full_log": "wazuh-agent: Agent event queue is full",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": [
+          "false_positive",
+          "informational"
+        ],
+        "open_case": false
+      }
+    },
+    {
+      "id": "fp-self-ingest",
+      "category": "self_ingest",
+      "alert": {
+        "id": "fp-self-ingest",
+        "rule_id": "2501",
+        "rule_level": 5,
+        "description": "syslog: User authentication failure.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "autonomy_loop opened case #99 after cursor cloud investigation",
+        "raw": {
+          "rule": {
+            "id": "2501",
+            "level": 5,
+            "description": "syslog: User authentication failure.",
+            "groups": [
+              "syslog",
+              "authentication_failed"
+            ]
+          },
+          "full_log": "autonomy_loop opened case #99 after cursor cloud investigation",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "false_positive",
+        "open_case": false
+      }
+    },
+    {
+      "id": "info-successful-sudo",
+      "category": "benign_sudo",
+      "alert": {
+        "id": "info-successful-sudo",
+        "rule_id": "5402",
+        "rule_level": 3,
+        "description": "Successful sudo to ROOT executed.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "sudo: labuser : TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/true",
+        "raw": {
+          "rule": {
+            "id": "5402",
+            "level": 3,
+            "description": "Successful sudo to ROOT executed.",
+            "groups": [
+              "syslog",
+              "sudo"
+            ]
+          },
+          "full_log": "sudo: labuser : TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/true",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "informational",
+        "open_case": false
+      }
+    },
+    {
+      "id": "info-agent-started",
+      "category": "benign_agent",
+      "alert": {
+        "id": "info-agent-started",
+        "rule_id": "503",
+        "rule_level": 3,
+        "description": "Agent started",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "ossec: Agent started",
+        "raw": {
+          "rule": {
+            "id": "503",
+            "level": 3,
+            "description": "Agent started",
+            "groups": [
+              "agent"
+            ]
+          },
+          "full_log": "ossec: Agent started",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": [
+          "informational",
+          "false_positive"
+        ],
+        "open_case": false
+      }
+    },
+    {
+      "id": "sus-web-login-fail",
+      "category": "router_auth",
+      "alert": {
+        "id": "sus-web-login-fail",
+        "rule_id": "100202",
+        "rule_level": 7,
+        "description": "ASUS web admin login failure",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "httpd: [login] fail from 198.51.100.40",
+        "raw": {
+          "rule": {
+            "id": "100202",
+            "level": 7,
+            "description": "ASUS web admin login failure",
+            "groups": [
+              "asus",
+              "httpd"
+            ]
+          },
+          "full_log": "httpd: [login] fail from 198.51.100.40",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": "suspicious",
+        "open_case": true
+      }
+    },
+    {
+      "id": "tp-high-malware",
+      "category": "malware",
+      "alert": {
+        "id": "tp-high-malware",
+        "rule_id": "554",
+        "rule_level": 12,
+        "description": "File added to the system that matches a malware signature.",
+        "agent": "lab-agent",
+        "timestamp": "2026-09-15T12:00:00.000Z",
+        "full_log": "Integrity checksum changed for /tmp/lab-sample.bin",
+        "raw": {
+          "rule": {
+            "id": "554",
+            "level": 12,
+            "description": "File added to the system that matches a malware signature.",
+            "groups": [
+              "syscheck",
+              "malware"
+            ]
+          },
+          "full_log": "Integrity checksum changed for /tmp/lab-sample.bin",
+          "agent": {
+            "name": "lab-agent"
+          }
+        }
+      },
+      "expected": {
+        "disposition": [
+          "true_positive",
+          "suspicious"
+        ],
+        "open_case": true
+      }
+    }
+  ]
+}

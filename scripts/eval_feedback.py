@@ -53,10 +53,14 @@ def summarize(store: CaseStore, *, limit: int = 50) -> dict[str, Any]:
         {"rule_id": rid, "source_ip": sip, "reject_count": n}
         for (rid, sip), n in sorted(skip_keys.items(), key=lambda x: (-x[1], x[0]))
     ]
+    metrics = store.queue_metrics()
+    suggestions = store.suppression_suggestions(min_count=2, limit=15)
     return {
         **summary,
         "skip_keys": skip_list,
         "skip_key_count": len(skip_list),
+        "queue_metrics": metrics,
+        "suppression_suggestions": suggestions.get("suggestions") or [],
     }
 
 
@@ -72,6 +76,13 @@ def main() -> int:
         return 0
 
     print(f"db={db}")
+    qm = report.get("queue_metrics") or {}
+    print(
+        f"queue open={qm.get('open', 0)} auto_closed={qm.get('auto_closed', 0)} "
+        f"human_closed={qm.get('human_closed', 0)} "
+        f"suppressions={qm.get('active_suppressions', 0)} "
+        f"cases_total={qm.get('cases_total', 0)}"
+    )
     print(
         f"feedback n={report.get('count', 0)} "
         f"approved={report.get('approved', 0)} "
@@ -83,6 +94,15 @@ def main() -> int:
             f"  skip rule={item['rule_id']} src={item['source_ip']} "
             f"rejects={item['reject_count']}"
         )
+    suggestions = report.get("suppression_suggestions") or []
+    if suggestions:
+        print(f"suppression suggestions (review before adding): {len(suggestions)}")
+        for item in suggestions:
+            src = item.get("source_ip") or "any"
+            print(
+                f"  suggest rule={item['rule_id']} src={src} "
+                f"count={item['count']} → {item.get('suggested_disposition')}"
+            )
     print("recent:")
     for row in report.get("items") or []:
         decision = str(row.get("analyst_disposition") or ("APPROVE" if row.get("approved") else "REJECT"))

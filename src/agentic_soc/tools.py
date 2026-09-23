@@ -12,22 +12,10 @@ from agentic_soc.containment import (
     plan_note,
 )
 from agentic_soc.enrichment import VirusTotalClient
-from agentic_soc.triage import extract_iocs, extract_source_ip
+from agentic_soc.triage import extract_iocs, extract_source_ip, extract_user
 from agentic_soc.wazuh_client import WazuhClient
 
 _IOC_TO_ENTITY = {"ip": "ip", "hash": "hash", "domain": "domain"}
-
-
-def _extract_user(alert: dict[str, Any]) -> Optional[str]:
-    raw = alert.get("raw")
-    if isinstance(raw, dict):
-        data = raw.get("data")
-        if isinstance(data, dict):
-            for key in ("srcuser", "dstuser", "user"):
-                val = data.get(key)
-                if val:
-                    return str(val).strip()
-    return None
 
 
 class SocTools:
@@ -77,6 +65,7 @@ class SocTools:
         recommended_action: str = "",
         rule_id: Optional[str] = None,
         source_ip: Optional[str] = None,
+        brief: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         return self.cases.open_case(
             title=title,
@@ -87,6 +76,7 @@ class SocTools:
             recommended_action=recommended_action,
             rule_id=rule_id,
             source_ip=source_ip,
+            brief=brief,
         )
 
     def update_case(
@@ -173,9 +163,15 @@ class SocTools:
         *,
         note: str = "",
         author: str = "autonomy_loop",
+        disposition: Optional[str] = None,
     ) -> dict[str, Any]:
         """Close lab noise without HITL paging (no containment)."""
-        return self.cases.auto_close_noise(case_id, note=note, author=author)
+        return self.cases.auto_close_noise(
+            case_id,
+            note=note,
+            author=author,
+            disposition=disposition,
+        )
 
     def rejected_similar(
         self,
@@ -192,6 +188,63 @@ class SocTools:
 
     def feedback_summary(self, limit: int = 50) -> dict[str, Any]:
         return self.cases.feedback_summary(limit=limit)
+
+    def queue_metrics(self) -> dict[str, Any]:
+        return self.cases.queue_metrics()
+
+    def list_suppressions(
+        self,
+        *,
+        include_disabled: bool = False,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.cases.list_suppressions(
+            include_disabled=include_disabled,
+            limit=limit,
+        )
+
+    def add_suppression(
+        self,
+        *,
+        rule_id: str,
+        disposition: str = "informational",
+        source_ip: Optional[str] = None,
+        note: str = "",
+        created_by: str = "human",
+        expires_at: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.cases.add_suppression(
+            rule_id=rule_id,
+            disposition=disposition,
+            source_ip=source_ip,
+            note=note,
+            created_by=created_by,
+            expires_at=expires_at,
+        )
+
+    def disable_suppression(self, suppression_id: int) -> dict[str, Any]:
+        return self.cases.disable_suppression(suppression_id)
+
+    def match_suppression(
+        self,
+        *,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.cases.match_suppression(rule_id=rule_id, source_ip=source_ip)
+
+    def suppression_suggestions(
+        self,
+        *,
+        min_count: int = 2,
+        days: int = 30,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.cases.suppression_suggestions(
+            min_count=min_count,
+            days=days,
+            limit=limit,
+        )
 
     def plan_containment(
         self,
@@ -323,7 +376,7 @@ class SocTools:
         if host:
             _link(self.upsert_entity("host", str(host)))
 
-        user = _extract_user(alert)
+        user = extract_user(alert)
         if user:
             _link(self.upsert_entity("user", user))
 

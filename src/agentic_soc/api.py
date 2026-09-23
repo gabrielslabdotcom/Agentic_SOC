@@ -33,6 +33,7 @@ class OpenCaseBody(BaseModel):
     recommended_action: str = ""
     rule_id: Optional[str] = None
     source_ip: Optional[str] = None
+    brief: Optional[dict[str, Any]] = None
 
 
 class UpdateCaseBody(BaseModel):
@@ -116,6 +117,15 @@ class ExecuteContainmentBody(BaseModel):
     confirm: bool = False
     source_ip: Optional[str] = None
     author: str = "dashboard"
+
+
+class AddSuppressionBody(BaseModel):
+    rule_id: str
+    disposition: str = "informational"
+    source_ip: Optional[str] = None
+    note: str = ""
+    created_by: str = "dashboard"
+    expires_at: Optional[str] = None
 
 
 @app.get("/health")
@@ -268,6 +278,69 @@ def approve_cases(body: BulkApproveBody) -> dict[str, Any]:
 def feedback_summary(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     """Human closing-outcome history used to skip repeat lab noise."""
     return get_tools().feedback_summary(limit=limit)
+
+
+@app.get("/tools/queue_metrics")
+def queue_metrics() -> dict[str, Any]:
+    """Opened / auto-closed / human-outcome counts for the analyst UI strip."""
+    return get_tools().queue_metrics()
+
+
+@app.get("/tools/list_suppressions")
+def list_suppressions(
+    include_disabled: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, Any]:
+    return get_tools().list_suppressions(
+        include_disabled=include_disabled,
+        limit=limit,
+    )
+
+
+@app.post("/tools/add_suppression")
+def add_suppression(body: AddSuppressionBody) -> dict[str, Any]:
+    """Analyst-managed rule suppression (auto-close before Discord/Cursor)."""
+    result = get_tools().add_suppression(
+        rule_id=body.rule_id,
+        disposition=body.disposition,
+        source_ip=body.source_ip,
+        note=body.note,
+        created_by=body.created_by,
+        expires_at=body.expires_at,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result)
+    return result
+
+
+@app.post("/tools/disable_suppression/{suppression_id}")
+def disable_suppression(suppression_id: int) -> dict[str, Any]:
+    result = get_tools().disable_suppression(suppression_id)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.get("/tools/match_suppression")
+def match_suppression(
+    rule_id: str = Query(..., min_length=1),
+    source_ip: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    return get_tools().match_suppression(rule_id=rule_id, source_ip=source_ip)
+
+
+@app.get("/tools/suppression_suggestions")
+def suppression_suggestions(
+    min_count: int = Query(2, ge=2, le=50),
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Repeated skippable feedback — for review; never auto-promoted."""
+    return get_tools().suppression_suggestions(
+        min_count=min_count,
+        days=days,
+        limit=limit,
+    )
 
 
 @app.post("/tools/propose_action/{case_id}")

@@ -29,6 +29,7 @@ from agentic_soc.cursor_agent import maybe_kick_after_case_open  # noqa: E402
 from agentic_soc.discord_notify import DiscordNotifier  # noqa: E402
 from agentic_soc.triage import (  # noqa: E402
     RULE_UFW_BLOCK,
+    build_analyst_brief,
     build_summary,
     extract_iocs,
     extract_source_ip,
@@ -252,15 +253,26 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
                 report["skipped"] += 1
                 continue
 
-        enrichments = await _enrich(tools, iocs, args.enrich)
+        suppression = tools.match_suppression(rule_id=rule_id or None, source_ip=src_ip)
+        suppressed = bool(suppression.get("match"))
+
+        enrichments = await _enrich(tools, iocs, args.enrich and not suppressed)
         if enrichments:
             judgment = score_alert(alert, enrichments)
         noise = is_auto_close_noise(alert, judgment, enrichments=enrichments)
         auto_noise = bool(args.auto_close_noise) and bool(noise.get("close"))
+        if suppressed:
+            auto_noise = True
         if not auto_noise and opened >= args.max_cases:
             LOG.warning("max-cases (%s) reached this cycle", args.max_cases)
             break
         summary = f"[autonomy_loop]\n{build_summary(alert, judgment, enrichments)}"
+        brief = build_analyst_brief(
+            alert,
+            judgment,
+            enrichments,
+            wazuh_dashboard_url=tools.settings.wazuh_dashboard_url,
+        )
         case = tools.open_case(
             title=f"[auto][{judgment['disposition']}] {alert.get('description') or 'alert'}",
             alert_id=alert_id or None,
@@ -269,7 +281,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             severity=judgment["severity"],
             recommended_action=judgment["recommended_action"],
             rule_id=rule_id or None,
-            source_ip=src_ip,
+            source_ip=src_ip or (brief.get("actors") or {}).get("source_ip"),
+            brief=brief,
         )
         if case.get("duplicate"):
             LOG.info("duplicate alert_id=%s already case #%s — skip notify", alert_id, case.get("id"))
@@ -303,10 +316,27 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             LOG.warning("entity correlation failed case #%s: %s", case["id"], exc)
 
         if auto_noise:
+            close_disp = None
+            close_note = f"{noise.get('reason')}: {judgment['disposition']}"
+            if suppressed:
+                close_disp = str(suppression.get("disposition") or "informational")
+                sid = (suppression.get("suppression") or {}).get("id")
+                close_note = (
+                    f"rule_suppression id={sid} reason={suppression.get('reason')} "
+                    f"disposition={close_disp}"
+                )
+                tools.update_case(
+                    case["id"],
+                    disposition=close_disp,
+                    note=f"[suppression] matched rule_id={rule_id} "
+                    f"source={src_ip or 'any'} → {close_disp}",
+                    author="autonomy_loop",
+                )
             closed = tools.auto_close_noise(
                 case["id"],
-                note=f"{noise.get('reason')}: {judgment['disposition']}",
+                note=close_note,
                 author="autonomy_loop",
+                disposition=close_disp,
             )
             report["auto_closed"] += 1
             if alert_id:
@@ -314,8 +344,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             LOG.info(
                 "auto-closed noise case #%s disposition=%s reason=%s | %s",
                 closed.get("id"),
-                judgment["disposition"],
-                noise.get("reason"),
+                close_disp or judgment["disposition"],
+                "rule_suppression" if suppressed else noise.get("reason"),
                 alert.get("description"),
             )
             continue
@@ -354,7 +384,9 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
             "rule_level": alert.get("rule_level"),
             "timestamp": alert.get("timestamp"),
             "full_log": alert.get("full_log"),
-            "source_ip": extract_source_ip(alert),
+            "source_ip": src_ip or (brief.get("actors") or {}).get("source_ip"),
+            "user": (brief.get("actors") or {}).get("user"),
+            "brief": brief,
             "iocs": iocs,
             "reasons": judgment.get("reasons") or [],
             "enrichments": [
@@ -367,12 +399,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
                 }
                 for e in (enrichments or [])
             ],
-            "analyst_next_steps": (
-                "1) Open Wazuh dashboard and confirm this alert/rule\n"
-                "2) Check source IP / IOCs (lab scan vs unknown)\n"
-                "3) Open http://192.168.50.254:8080/ — False Positive / Benign / "
-                "Informational / Duplicate skip repeats; Confirmed Compromise does not. "
-                "None run containment."
+            "analyst_next_steps": "\n".join(
+                f"{i}. {step}" for i, step in enumerate(brief.get("do_next") or [], start=1)
             ),
         }
         report["cases_opened"].append(case_info)
