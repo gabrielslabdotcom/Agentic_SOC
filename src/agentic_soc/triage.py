@@ -777,6 +777,16 @@ def _severity_from(level_i: int, disposition: str) -> str:
     return "low"
 
 
+SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def severity_rose(previous: str, current: str) -> bool:
+    """True when the new severity outranks the incident's current severity."""
+    return SEVERITY_RANK.get((current or "").lower(), 0) > SEVERITY_RANK.get(
+        (previous or "").lower(), 0
+    )
+
+
 def _recommend_action(disposition: str, level: int, malicious_hits: int) -> str:
     if disposition == "true_positive" or malicious_hits > 0:
         return "investigate_and_document"

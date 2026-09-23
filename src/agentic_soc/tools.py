@@ -246,6 +246,46 @@ class SocTools:
             limit=limit,
         )
 
+    def known_alert_ids(self) -> set[str]:
+        return self.cases.known_alert_ids()
+
+    def find_open_incident(
+        self,
+        *,
+        source_ip: Optional[str] = None,
+        actor_user: Optional[str] = None,
+        hours: int = 6,
+    ) -> dict[str, Any]:
+        return self.cases.find_open_incident(
+            source_ip=source_ip,
+            actor_user=actor_user,
+            hours=hours,
+        )
+
+    def attach_alert(
+        self,
+        case_id: int,
+        *,
+        alert_id: Optional[str] = None,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        actor_user: Optional[str] = None,
+        severity: str = "medium",
+        description: str = "",
+    ) -> dict[str, Any]:
+        return self.cases.attach_alert(
+            case_id,
+            alert_id=alert_id,
+            rule_id=rule_id,
+            source_ip=source_ip,
+            actor_user=actor_user,
+            severity=severity,
+            description=description,
+        )
+
+    def situation(self, *, limit: int = 50) -> dict[str, Any]:
+        return self.cases.situation(limit=limit)
+
     def plan_containment(
         self,
         *,

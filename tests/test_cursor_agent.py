@@ -55,27 +55,30 @@ def _settings(tmp_path, **kwargs: object) -> Settings:
 
 
 def test_build_prompt_includes_case_fields_and_propose_only():
-    prompt = build_investigation_prompt(
-        _case(),
-        api_url="http://127.0.0.1:8080",
-    )
-    assert "case_id: 42" in prompt
-    assert "alert_id: abc-123" in prompt
-    assert "investigate_and_document" in prompt
+    packet = {
+        "case_id": 42,
+        "brief": {"headline": "sshd auth failure", "do_next": ["Confirm.", "Close.", "Suppress."]},
+        "related_case_ids": [7],
+        "trigger_alert": {"id": "abc-123", "evidence": "Failed password for root"},
+    }
+    prompt = build_investigation_prompt(_case(incident_packet=packet), api_url="http://127.0.0.1:8080", packet=packet)
+    assert "42" in prompt
     assert "Propose only" in prompt
-    assert "Never execute containment" in prompt or "never" in prompt.lower()
-    assert "final reply" in prompt.lower()
-    assert "automatically" in prompt.lower()
-    assert "/tools/update_case/42" in prompt
-    assert "203.0.113.9" in prompt
+    assert "Never execute containment" in prompt
+    assert "Do **not** approve" in prompt
+    assert "Do **not** call Wazuh" in prompt
+    assert "/tools/update_case" not in prompt
+    assert "192.168.50.254" not in prompt
+    assert "related_case_ids" in prompt
+    assert "sshd auth failure" in prompt
 
 
 def test_build_prompt_without_api_url_auto_copy():
     prompt = build_investigation_prompt(_case(), api_url="")
-    assert "automatically" in prompt.lower()
     assert "final reply" in prompt.lower()
-    assert "192.168.50.254" in prompt
-    assert "approve/reject" in prompt.lower()
+    assert "192.168.50.254" not in prompt
+    assert "approve" in prompt.lower()
+    assert "Do **not** call Wazuh" in prompt
 
 
 def test_cursor_agent_enabled_defaults_false(monkeypatch: pytest.MonkeyPatch):
@@ -124,7 +127,8 @@ def test_dry_run_returns_prompt_without_sdk():
     out = kick_cursor_investigation(_case(), settings=settings, dry_run=True)
     assert out["ok"] is True
     assert out["dry_run"] is True
-    assert "case_id: 42" in out["prompt"]
+    assert "42" in out["prompt"]
+    assert "Do **not** call Wazuh" in out["prompt"]
     assert out["repo_url"] == "https://github.com/example/Agentic_SOC"
 
 

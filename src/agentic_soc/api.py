@@ -286,6 +286,12 @@ def queue_metrics() -> dict[str, Any]:
     return get_tools().queue_metrics()
 
 
+@app.get("/tools/situation")
+def situation(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    """Open incidents grouped by source IP or user. Actor-less cases stay ungrouped."""
+    return get_tools().situation(limit=limit)
+
+
 @app.get("/tools/list_suppressions")
 def list_suppressions(
     include_disabled: bool = Query(False),

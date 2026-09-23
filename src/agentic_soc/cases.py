@@ -13,7 +13,7 @@ from agentic_soc.analyst_outcomes import (
     feedback_approved_int,
     skips_repeats,
 )
-from agentic_soc.triage import fallback_brief_from_case
+from agentic_soc.triage import fallback_brief_from_case, severity_rose
 
 ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
 # host is stored for inventory, but case-to-case expansion ignores it so every
@@ -103,6 +103,7 @@ class CaseStore:
             self._ensure_unique_alert_id(conn)
             self._ensure_feedback_schema(conn)
             self._ensure_suppressions_schema(conn)
+            self._ensure_incident_schema(conn)
 
     @staticmethod
     def _ensure_unique_alert_id(conn: sqlite3.Connection) -> None:
@@ -157,6 +158,8 @@ class CaseStore:
             conn.execute("ALTER TABLE cases ADD COLUMN analyst_disposition TEXT")
         if "brief_json" not in cols:
             conn.execute("ALTER TABLE cases ADD COLUMN brief_json TEXT")
+        if "actor_user" not in cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN actor_user TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS triage_feedback (
@@ -209,6 +212,37 @@ class CaseStore:
         )
 
     @staticmethod
+    def _ensure_incident_schema(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER NOT NULL,
+                alert_id TEXT,
+                rule_id TEXT,
+                source_ip TEXT,
+                actor_user TEXT,
+                severity TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(case_id) REFERENCES cases(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_case_alerts_alert_id
+            ON case_alerts(alert_id)
+            WHERE alert_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_case_alerts_case
+            ON case_alerts(case_id)
+            """
+        )
+
+    @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
@@ -242,6 +276,11 @@ class CaseStore:
         aid = (alert_id or "").strip() or None
         rid = (rule_id or "").strip() or None
         sip = (source_ip or "").strip() or None
+        actor = ""
+        if isinstance(brief, dict):
+            actors = brief.get("actors") if isinstance(brief.get("actors"), dict) else {}
+            actor = str((actors or {}).get("user") or "").strip()
+        actor_user = actor or None
         brief_json = json.dumps(brief, default=str) if brief else None
         with self._connect() as conn:
             try:
@@ -250,8 +289,8 @@ class CaseStore:
                     INSERT INTO cases (
                         title, status, severity, alert_id, agent_name,
                         summary, recommended_action, created_at, updated_at,
-                        rule_id, source_ip, brief_json
-                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        rule_id, source_ip, brief_json, actor_user
+                    ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         title,
@@ -265,9 +304,20 @@ class CaseStore:
                         rid,
                         sip,
                         brief_json,
+                        actor_user,
                     ),
                 )
                 case_id = cur.lastrowid
+                self._insert_case_alert(
+                    conn,
+                    case_id=int(case_id),
+                    alert_id=aid,
+                    rule_id=rid,
+                    source_ip=sip,
+                    actor_user=actor_user,
+                    severity=severity,
+                    created_at=now,
+                )
             except sqlite3.IntegrityError:
                 conn.rollback()
                 if not aid:
@@ -294,6 +344,10 @@ class CaseStore:
         analyst_disposition: Optional[str] = None,
         note: Optional[str] = None,
         author: str = "agent",
+        severity: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        actor_user: Optional[str] = None,
+        brief: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         fields: list[str] = []
         values: list[Any] = []
@@ -312,6 +366,18 @@ class CaseStore:
         if recommended_action is not None:
             fields.append("recommended_action = ?")
             values.append(recommended_action)
+        if severity is not None:
+            fields.append("severity = ?")
+            values.append(severity)
+        if source_ip is not None:
+            fields.append("source_ip = ?")
+            values.append(source_ip or None)
+        if actor_user is not None:
+            fields.append("actor_user = ?")
+            values.append(actor_user or None)
+        if brief is not None:
+            fields.append("brief_json = ?")
+            values.append(json.dumps(brief, default=str))
         fields.append("updated_at = ?")
         values.append(self._now())
         values.append(case_id)
@@ -335,9 +401,15 @@ class CaseStore:
                 "SELECT id, author, note, created_at FROM case_notes WHERE case_id = ? ORDER BY id",
                 (case_id,),
             ).fetchall()
+            alert_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM case_alerts WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
         case = dict(row)
         case["notes"] = [dict(n) for n in notes]
         case["brief"] = self._brief_for(case)
+        counted = int(alert_count["n"] or 0) if alert_count else 0
+        case["alert_count"] = counted if counted else (1 if case.get("alert_id") else 0)
         return case
 
     @staticmethod
@@ -351,6 +423,281 @@ class CaseStore:
             if isinstance(parsed, dict) and parsed.get("headline"):
                 return parsed
         return fallback_brief_from_case(case)
+
+    @staticmethod
+    def _insert_case_alert(
+        conn: sqlite3.Connection,
+        *,
+        case_id: int,
+        alert_id: Optional[str],
+        rule_id: Optional[str],
+        source_ip: Optional[str],
+        actor_user: Optional[str],
+        severity: Optional[str],
+        created_at: str,
+    ) -> bool:
+        aid = (alert_id or "").strip() or None
+        if not aid:
+            return False
+        try:
+            conn.execute(
+                """
+                INSERT INTO case_alerts (
+                    case_id, alert_id, rule_id, source_ip, actor_user, severity, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (case_id, aid, rule_id, source_ip, actor_user, severity, created_at),
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def known_alert_ids(self) -> set[str]:
+        """Alert ids already on a case or attached to an incident."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT alert_id FROM cases WHERE alert_id IS NOT NULL AND trim(alert_id) != ''
+                UNION
+                SELECT alert_id FROM case_alerts WHERE alert_id IS NOT NULL AND trim(alert_id) != ''
+                """
+            ).fetchall()
+        return {str(r["alert_id"]) for r in rows}
+
+    def find_open_incident(
+        self,
+        *,
+        source_ip: Optional[str] = None,
+        actor_user: Optional[str] = None,
+        hours: int = 6,
+    ) -> dict[str, Any]:
+        """Open case sharing this source IP or user, updated inside the window.
+
+        No actor means no match. A missing IP must not join the auth-flood cases.
+        Prefer a source-IP match over a username match.
+        """
+        sip = (source_ip or "").strip()
+        user = (actor_user or "").strip()
+        if not sip and not user:
+            return {"match": False, "reason": "no_actor"}
+        hours = max(1, int(hours))
+        cutoff = datetime.now(timezone.utc).timestamp() - hours * 3600
+
+        def _recent(case: dict[str, Any]) -> bool:
+            ts = self._parse_ts(str(case.get("updated_at") or case.get("created_at") or ""))
+            return ts is not None and ts >= cutoff
+
+        with self._connect() as conn:
+            ip_row = None
+            if sip:
+                ip_row = conn.execute(
+                    """
+                    SELECT * FROM cases
+                    WHERE status = 'open' AND source_ip = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (sip,),
+                ).fetchone()
+            user_row = None
+            if user:
+                user_row = conn.execute(
+                    """
+                    SELECT * FROM cases
+                    WHERE status = 'open' AND actor_user = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (user,),
+                ).fetchone()
+        ip_case = dict(ip_row) if ip_row else None
+        user_case = dict(user_row) if user_row else None
+        if ip_case and _recent(ip_case):
+            chosen = ip_case
+            reason = "source_ip"
+        elif user_case and _recent(user_case):
+            chosen = user_case
+            reason = "user"
+        else:
+            return {
+                "match": False,
+                "reason": "no_open_incident",
+                "source_ip": sip or None,
+                "user": user or None,
+            }
+        chosen["brief"] = self._brief_for(chosen)
+        return {
+            "match": True,
+            "reason": reason,
+            "case": chosen,
+            "case_id": int(chosen["id"]),
+        }
+
+    def attach_alert(
+        self,
+        case_id: int,
+        *,
+        alert_id: Optional[str] = None,
+        rule_id: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        actor_user: Optional[str] = None,
+        severity: str = "medium",
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Attach a sibling alert to an open incident. Does not open a new case."""
+        case = self.get_case(case_id)
+        if case.get("error"):
+            return case
+        if str(case.get("status") or "") != "open":
+            return {"attached": False, "reason": "not_open", "case_id": case_id}
+        aid = (alert_id or "").strip() or None
+        if aid and (aid == (case.get("alert_id") or "") or aid in self.known_alert_ids()):
+            return {
+                "attached": False,
+                "reason": "already_known",
+                "case_id": case_id,
+                "severity_rose": False,
+                "notify": False,
+            }
+        sip = (source_ip or "").strip() or None
+        user = (actor_user or "").strip() or None
+        now = self._now()
+        with self._connect() as conn:
+            inserted = self._insert_case_alert(
+                conn,
+                case_id=case_id,
+                alert_id=aid,
+                rule_id=(rule_id or "").strip() or None,
+                source_ip=sip,
+                actor_user=user,
+                severity=severity,
+                created_at=now,
+            )
+        if aid and not inserted:
+            return {
+                "attached": False,
+                "reason": "already_known",
+                "case_id": case_id,
+                "severity_rose": False,
+                "notify": False,
+            }
+        previous = str(case.get("severity") or "medium")
+        rose = severity_rose(previous, severity)
+        brief = dict(case.get("brief") or {})
+        actors = dict(brief.get("actors") or {})
+        if sip and not actors.get("source_ip"):
+            actors["source_ip"] = sip
+        if user and not actors.get("user"):
+            actors["user"] = user
+        brief["actors"] = actors
+        note = (
+            f"[incident_attach] alert_id={aid or '—'} rule={rule_id or '—'} "
+            f"source={sip or '—'} user={user or '—'} severity={severity}"
+        )
+        if description:
+            note += f"\n{description[:240]}"
+        updated = self.update_case(
+            case_id,
+            severity=severity if rose else None,
+            source_ip=sip if sip and not case.get("source_ip") else None,
+            actor_user=user if user and not case.get("actor_user") else None,
+            brief=brief,
+            note=note,
+            author="autonomy_loop",
+        )
+        return {
+            "attached": True,
+            "reason": "joined_open_incident",
+            "case_id": case_id,
+            "case": updated,
+            "previous_severity": previous,
+            "severity": severity if rose else previous,
+            "severity_rose": rose,
+            "notify": rose,
+        }
+
+    def situation(self, *, limit: int = 50) -> dict[str, Any]:
+        """Open incidents grouped by source IP or user. Actor-less cases stay ungrouped."""
+        limit = max(1, min(int(limit), 200))
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM cases WHERE status = 'open' ORDER BY updated_at DESC"
+            ).fetchall()
+            alert_rows = conn.execute(
+                "SELECT case_id, alert_id, rule_id, created_at FROM case_alerts"
+            ).fetchall()
+        by_case: dict[int, list[sqlite3.Row]] = {}
+        for row in alert_rows:
+            by_case.setdefault(int(row["case_id"]), []).append(row)
+
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        ungrouped = 0
+        for row in rows:
+            case = dict(row)
+            brief = self._brief_for(case)
+            actors = brief.get("actors") if isinstance(brief.get("actors"), dict) else {}
+            sip = (case.get("source_ip") or actors.get("source_ip") or "").strip()
+            user = (case.get("actor_user") or actors.get("user") or "").strip()
+            if not sip and not user:
+                ungrouped += 1
+                continue
+            # Group by source IP when present, otherwise by user.
+            group_key = ("ip", sip) if sip else ("user", user)
+            bucket = groups.get(group_key)
+            if bucket is None:
+                bucket = {
+                    "source_ip": sip or None,
+                    "user": user or None,
+                    "alert_count": 0,
+                    "latest_at": case.get("updated_at"),
+                    "top_rule": case.get("rule_id"),
+                    "disposition": case.get("disposition"),
+                    "severity": case.get("severity"),
+                    "case_ids": [],
+                    "_rules": {},
+                }
+                groups[group_key] = bucket
+            if user and not bucket.get("user"):
+                bucket["user"] = user
+            cid = int(case["id"])
+            bucket["case_ids"].append(cid)
+            alerts = by_case.get(cid) or []
+            rules: dict[str, int] = bucket["_rules"]
+            if alerts:
+                bucket["alert_count"] += len(alerts)
+                for alert in alerts:
+                    if alert["rule_id"]:
+                        rid = str(alert["rule_id"])
+                        rules[rid] = rules.get(rid, 0) + 1
+                    created = str(alert["created_at"] or "")
+                    if created and (not bucket["latest_at"] or created > str(bucket["latest_at"])):
+                        bucket["latest_at"] = created
+            else:
+                bucket["alert_count"] += 1
+                if case.get("rule_id"):
+                    rid = str(case["rule_id"])
+                    rules[rid] = rules.get(rid, 0) + 1
+            updated = str(case.get("updated_at") or "")
+            if updated and (not bucket["latest_at"] or updated > str(bucket["latest_at"])):
+                bucket["latest_at"] = updated
+            if severity_rose(str(bucket.get("severity") or ""), str(case.get("severity") or "")):
+                bucket["severity"] = case.get("severity")
+            if case.get("disposition"):
+                bucket["disposition"] = case.get("disposition")
+
+        items = []
+        for bucket in groups.values():
+            rules = bucket.pop("_rules")
+            if rules:
+                bucket["top_rule"] = max(rules.items(), key=lambda item: (item[1], item[0]))[0]
+            items.append(bucket)
+        items.sort(key=lambda item: str(item.get("latest_at") or ""), reverse=True)
+        return {
+            "groups": items[:limit],
+            "group_count": len(items),
+            "ungrouped_open": ungrouped,
+            "open_cases": len(rows),
+        }
 
     def list_cases(self, status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
         with self._connect() as conn:

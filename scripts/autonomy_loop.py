@@ -25,7 +25,10 @@ _SRC = _ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from agentic_soc.cursor_agent import maybe_kick_after_case_open  # noqa: E402
+from agentic_soc.cursor_agent import (  # noqa: E402
+    explain_incident,
+    should_explain_incident,
+)
 from agentic_soc.discord_notify import DiscordNotifier  # noqa: E402
 from agentic_soc.triage import (  # noqa: E402
     RULE_UFW_BLOCK,
@@ -33,6 +36,7 @@ from agentic_soc.triage import (  # noqa: E402
     build_summary,
     extract_iocs,
     extract_source_ip,
+    extract_user,
     is_auto_close_noise,
     score_alert,
     should_open_case,
@@ -88,6 +92,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--limit", type=int, default=int(os.environ.get("AUTONOMY_LIMIT", "40")))
     p.add_argument("--max-cases", type=int, default=int(os.environ.get("AUTONOMY_MAX_CASES", "10")))
+    p.add_argument(
+        "--incident-hours",
+        type=int,
+        default=int(os.environ.get("AUTONOMY_INCIDENT_HOURS", "6")),
+        help="Attach alerts to an open case with the same source IP or user inside this window",
+    )
     p.add_argument(
         "--agent-name",
         default=os.environ.get("AUTONOMY_AGENT_NAME", "pop-os-native"),
@@ -148,12 +158,12 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
 
 
 def _existing_case_alert_ids(tools: SocTools) -> set[str]:
-    ids: set[str] = set()
-    for c in tools.list_cases(limit=1000).get("cases", []):
-        aid = c.get("alert_id")
-        if aid:
-            ids.add(str(aid))
-    return ids
+    return tools.known_alert_ids()
+
+
+def should_page_discord(*, opened_new: bool, severity_rose: bool) -> bool:
+    """Discord fires when an incident opens or an attached alert raises severity."""
+    return bool(opened_new or severity_rose)
 
 
 async def _enrich(tools: SocTools, iocs: list[dict[str, str]], enabled: bool) -> list[dict[str, Any]]:
@@ -179,6 +189,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         "cases_opened": [],
         "skipped": 0,
         "auto_closed": 0,
+        "attached": 0,
+        "severity_rose": 0,
         "discord": [],
         "cursor_agent": [],
     }
@@ -263,6 +275,82 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         auto_noise = bool(args.auto_close_noise) and bool(noise.get("close"))
         if suppressed:
             auto_noise = True
+        actor_user = extract_user(alert)
+        if not auto_noise:
+            incident = tools.find_open_incident(
+                source_ip=src_ip,
+                actor_user=actor_user,
+                hours=args.incident_hours,
+            )
+            if incident.get("match"):
+                attached = tools.attach_alert(
+                    int(incident["case_id"]),
+                    alert_id=alert_id or None,
+                    rule_id=rule_id or None,
+                    source_ip=src_ip,
+                    actor_user=actor_user,
+                    severity=str(judgment.get("severity") or "medium"),
+                    description=str(alert.get("description") or ""),
+                )
+                try:
+                    tools.correlate_alert(
+                        alert,
+                        case_id=int(incident["case_id"]),
+                        alert_id=alert_id or None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    LOG.warning("entity correlation failed on attach: %s", exc)
+                if alert_id:
+                    known_cases.add(alert_id)
+                if attached.get("attached"):
+                    report["attached"] += 1
+                    LOG.info(
+                        "attached alert %s to incident #%s severity_rose=%s",
+                        alert_id,
+                        incident.get("case_id"),
+                        attached.get("severity_rose"),
+                    )
+                else:
+                    report["skipped"] += 1
+                if attached.get("notify") and should_page_discord(
+                    opened_new=False,
+                    severity_rose=True,
+                ):
+                    report["severity_rose"] += 1
+                    parent = attached.get("case") or incident.get("case") or {}
+                    rose_info = {
+                        "id": incident.get("case_id"),
+                        "source_ip": src_ip or parent.get("source_ip"),
+                        "user": actor_user,
+                        "rule_id": rule_id,
+                        "severity": attached.get("severity"),
+                    }
+                    if args.discord and discord.configured:
+                        try:
+                            n = await discord.notify_severity_rose(
+                                rose_info,
+                                previous=str(attached.get("previous_severity") or ""),
+                                current=str(attached.get("severity") or ""),
+                            )
+                            report["discord"].append(n)
+                        except Exception as exc:  # noqa: BLE001
+                            LOG.warning("discord severity notify error: %s", exc)
+                    if should_explain_incident(opened_new=False, severity_rose=True):
+                        await _explain_incident(
+                            tools,
+                            report,
+                            {
+                                "id": incident.get("case_id"),
+                                "alert_id": alert_id,
+                                "agent_name": alert.get("agent"),
+                                "enrichments": enrichments,
+                                "title": (attached.get("case") or {}).get("title"),
+                                "disposition": judgment.get("disposition"),
+                                "severity": attached.get("severity"),
+                            },
+                            args,
+                        )
+                continue
         if not auto_noise and opened >= args.max_cases:
             LOG.warning("max-cases (%s) reached this cycle", args.max_cases)
             break
@@ -423,37 +511,8 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         elif args.discord and not discord.configured:
             LOG.debug("DISCORD_WEBHOOK_URL not set — skipping notify")
 
-        # Mac-offline path: Cursor cloud propose-only investigation (fail soft)
-        if args.cursor_agent or args.cursor_dry_run:
-            try:
-                c = maybe_kick_after_case_open(
-                    case_info,
-                    enabled=True if args.cursor_agent or args.cursor_dry_run else None,
-                    dry_run=bool(args.cursor_dry_run),
-                )
-                report["cursor_agent"].append(
-                    {
-                        "case_id": case_info.get("id"),
-                        "ok": c.get("ok"),
-                        "skipped": c.get("skipped"),
-                        "dry_run": c.get("dry_run"),
-                        "error": c.get("error"),
-                        "started": c.get("started"),
-                    }
-                )
-                if c.get("dry_run") and c.get("prompt"):
-                    LOG.info(
-                        "cursor dry-run prompt for case #%s:\n%s",
-                        case_info.get("id"),
-                        c["prompt"],
-                    )
-                elif not c.get("ok") and not c.get("skipped"):
-                    LOG.warning("cursor agent kick failed: %s", c.get("error"))
-            except Exception as exc:  # noqa: BLE001
-                LOG.warning("cursor agent hook error: %s", exc)
-                report["cursor_agent"].append(
-                    {"case_id": case_info.get("id"), "ok": False, "error": str(exc)}
-                )
+        if should_explain_incident(opened_new=True, severity_rose=False):
+            await _explain_incident(tools, report, case_info, args)
 
     state["seen_alert_ids"] = list(seen)
     state["cycles"] = int(state.get("cycles") or 0) + 1
@@ -470,12 +529,55 @@ async def run_cycle(args: argparse.Namespace, state: dict[str, Any]) -> dict[str
         "opened": opened,
         "skipped": report["skipped"],
         "auto_closed": report["auto_closed"],
+        "attached": report["attached"],
+        "severity_rose": report["severity_rose"],
         "since": since,
         "last_seen_timestamp": state.get("last_seen_timestamp"),
         "truncated": bool(since) and len(alerts) >= args.limit,
         "batch_complete": batch_complete,
     }
     return report
+
+
+async def _explain_incident(
+    tools: SocTools,
+    report: dict[str, Any],
+    case: dict[str, Any],
+    args: argparse.Namespace,
+) -> None:
+    """Write a meaning note. Cloud runs only when the cursor hook is enabled."""
+    try:
+        explained = await explain_incident(
+            tools,
+            case,
+            settings=tools.settings,
+            alert_id=case.get("alert_id"),
+            agent_name=case.get("agent_name"),
+            enrichments=case.get("enrichments"),
+            cursor_enabled=bool(args.cursor_agent),
+            dry_run=bool(args.cursor_dry_run),
+        )
+        cursor = explained.get("cursor") or {}
+        report["cursor_agent"].append(
+            {
+                "case_id": case.get("id"),
+                "meaning_note": (explained.get("meaning_note") or {}).get("ok"),
+                "ok": cursor.get("ok", explained.get("ok")),
+                "skipped": cursor.get("skipped"),
+                "dry_run": cursor.get("dry_run"),
+                "error": cursor.get("error") or (explained.get("meaning_note") or {}).get("error"),
+                "started": cursor.get("started"),
+            }
+        )
+        if cursor.get("dry_run") and cursor.get("prompt"):
+            LOG.info("cursor dry-run prompt for case #%s:\n%s", case.get("id"), cursor["prompt"])
+        elif cursor.get("error") and not cursor.get("skipped"):
+            LOG.warning("cursor agent kick failed: %s", cursor.get("error"))
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("incident explain failed case #%s: %s", case.get("id"), exc)
+        report["cursor_agent"].append(
+            {"case_id": case.get("id"), "ok": False, "error": str(exc)}
+        )
 
 
 def _install_signal_handlers() -> None:

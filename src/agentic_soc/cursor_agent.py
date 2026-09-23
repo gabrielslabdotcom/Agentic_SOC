@@ -8,6 +8,7 @@ Hydra. Failures are logged and never raise into the autonomy cycle.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -20,8 +21,13 @@ LOG = logging.getLogger("agentic_soc.cursor_agent")
 DEFAULT_MODEL = "composer-2.5"
 DEFAULT_STARTING_REF = "main"
 INVESTIGATION_AUTHOR = "cursor_cloud_agent"
+MEANING_AUTHOR = "incident_investigator"
 NOTE_PREFIX = "[cursor_investigation]"
+MEANING_PREFIX = "[incident_meaning]"
 MAX_NOTE_CHARS = 50000
+_FORBIDDEN_PACKET_KEYS = frozenset(
+    {"approve_case", "execute_containment", "propose_action", "auto_execute"}
+)
 
 
 def _truthy(value: Optional[str], default: bool = False) -> bool:
@@ -49,98 +55,218 @@ def cursor_agent_enabled(settings: Optional[Settings] = None) -> bool:
     return True
 
 
+def _clip(text: str, limit: int = 240) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1] + "…"
+
+
+def _slim_alert(alert: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(alert, dict):
+        return {}
+    if alert.get("error"):
+        return {"error": str(alert.get("error"))}
+    return {
+        "id": alert.get("id"),
+        "timestamp": alert.get("timestamp"),
+        "rule_id": alert.get("rule_id"),
+        "rule_level": alert.get("rule_level"),
+        "description": _clip(str(alert.get("description") or ""), 180),
+        "agent": alert.get("agent") or alert.get("agent_name"),
+        "evidence": _clip(str(alert.get("full_log") or ""), 200),
+    }
+
+
+def should_explain_incident(*, opened_new: bool, severity_rose: bool) -> bool:
+    """Explain when an incident opens or an attached alert raises severity."""
+    return bool(opened_new or severity_rose)
+
+
+async def build_incident_packet(
+    tools: Any,
+    *,
+    case_id: int,
+    alert_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    enrichments: Optional[list[dict[str, Any]]] = None,
+    nearby_limit: int = 5,
+) -> dict[str, Any]:
+    """Read-only context for one incident. No approve, execute, or propose."""
+    case = tools.get_case(int(case_id))
+    if case.get("error"):
+        return {"ok": False, "error": case.get("error"), "case_id": case_id, "tools_used": ["get_case"]}
+
+    related = tools.find_related(case_id=int(case_id))
+    related_cases = []
+    for item in (related.get("related_cases") or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        related_cases.append(
+            {
+                "id": item.get("id"),
+                "title": _clip(str(item.get("title") or ""), 120),
+                "status": item.get("status"),
+                "disposition": item.get("disposition"),
+                "severity": item.get("severity"),
+                "rule_id": item.get("rule_id"),
+                "source_ip": item.get("source_ip"),
+            }
+        )
+
+    trigger: dict[str, Any] = {}
+    if alert_id:
+        try:
+            trigger = _slim_alert(await tools.get_alert(str(alert_id)))
+        except Exception as exc:  # noqa: BLE001
+            trigger = {"id": alert_id, "error": str(exc)}
+
+    nearby: list[dict[str, Any]] = []
+    agent = (agent_name or case.get("agent_name") or "").strip() or None
+    try:
+        listed = await tools.list_alerts(limit=max(1, nearby_limit), agent_name=agent)
+        for item in (listed.get("alerts") or [])[:nearby_limit]:
+            slim = _slim_alert(item)
+            if slim.get("id") and str(slim.get("id")) == str(alert_id or ""):
+                continue
+            nearby.append(slim)
+    except Exception as exc:  # noqa: BLE001
+        nearby = [{"error": str(exc)}]
+
+    brief = case.get("brief") if isinstance(case.get("brief"), dict) else {}
+    packet = {
+        "ok": True,
+        "case_id": int(case_id),
+        "title": case.get("title"),
+        "disposition": case.get("disposition"),
+        "severity": case.get("severity"),
+        "rule_id": case.get("rule_id"),
+        "source_ip": case.get("source_ip"),
+        "actor_user": case.get("actor_user") or (brief.get("actors") or {}).get("user"),
+        "agent_name": case.get("agent_name"),
+        "alert_id": alert_id or case.get("alert_id"),
+        "alert_count": case.get("alert_count") or 1,
+        "brief": {
+            "headline": brief.get("headline"),
+            "actors": brief.get("actors") or {},
+            "why": (brief.get("why") or [])[:2],
+            "evidence": brief.get("evidence"),
+            "vt": brief.get("vt"),
+            "do_next": (brief.get("do_next") or [])[:3],
+        },
+        "related_case_ids": [item.get("id") for item in related_cases if item.get("id") is not None],
+        "related_cases": related_cases,
+        "trigger_alert": trigger,
+        "nearby_alerts": nearby[:nearby_limit],
+        "enrichments": [
+            {
+                "ioc": e.get("ioc"),
+                "malicious": e.get("malicious"),
+                "suspicious": e.get("suspicious"),
+                "error": e.get("error"),
+            }
+            for e in (enrichments or [])[:4]
+            if isinstance(e, dict)
+        ],
+        "tools_used": ["get_case", "find_related", "get_alert", "list_alerts"],
+    }
+    return {k: v for k, v in packet.items() if k not in _FORBIDDEN_PACKET_KEYS}
+
+
+def render_meaning_note(packet: dict[str, Any]) -> str:
+    """Deterministic four-part explanation. Containment stays manual."""
+    brief = packet.get("brief") if isinstance(packet.get("brief"), dict) else {}
+    actors = brief.get("actors") if isinstance(brief.get("actors"), dict) else {}
+    who = []
+    if actors.get("user") or packet.get("actor_user"):
+        who.append(f"user {actors.get('user') or packet.get('actor_user')}")
+    if actors.get("source_ip") or packet.get("source_ip"):
+        who.append(f"source {actors.get('source_ip') or packet.get('source_ip')}")
+    if actors.get("agent") or packet.get("agent_name"):
+        who.append(f"host {actors.get('agent') or packet.get('agent_name')}")
+    subject = ", ".join(who) or "this host"
+    headline = brief.get("headline") or packet.get("title") or "Incident"
+    disposition = packet.get("disposition") or "unscored"
+    count = packet.get("alert_count") or 1
+    related_ids = packet.get("related_case_ids") or []
+    related_text = ", ".join(f"#{cid}" for cid in related_ids) or "none"
+    why = "; ".join(str(r) for r in (brief.get("why") or []) if r) or "triage opened or updated this incident"
+    evidence = brief.get("evidence") or (packet.get("trigger_alert") or {}).get("evidence") or "none"
+    vt = brief.get("vt") or ""
+    if not vt:
+        bits = []
+        for item in packet.get("enrichments") or []:
+            if item.get("error"):
+                bits.append(f"{item.get('ioc')}: lookup error")
+            elif item.get("ioc"):
+                bits.append(
+                    f"{item.get('ioc')}: malicious={item.get('malicious') or 0} "
+                    f"suspicious={item.get('suspicious') or 0}"
+                )
+        vt = "; ".join(bits)
+    steps = brief.get("do_next") or [
+        "Confirm the event in the Wazuh dashboard.",
+        "Close with an analyst outcome. That records status only.",
+        "Suppress the rule if this actor keeps repeating.",
+    ]
+    step_lines = "\n".join(f"{i}. {step}" for i, step in enumerate(steps[:3], start=1))
+    meaning = (
+        f"{headline} This is a {disposition} incident for {subject}, "
+        f"covering {count} alert(s). {why}."
+    )
+    if related_ids:
+        meaning += f" It shares an actor with {len(related_ids)} other case(s)."
+    evidence_line = _clip(str(evidence), 200)
+    vt_line = f"\nVirusTotal: {vt}" if vt else ""
+    return (
+        f"{MEANING_PREFIX}\n"
+        "containment=not_executed\n\n"
+        f"What it means\n{meaning}\n\n"
+        f"Evidence\n{evidence_line}{vt_line}\n\n"
+        f"Related cases\n{related_text}\n\n"
+        f"Next steps\n{step_lines}"
+    )
+
+
 def build_investigation_prompt(
     case: dict[str, Any],
     *,
     api_url: str = "",
+    packet: Optional[dict[str, Any]] = None,
 ) -> str:
-    """Build a propose-only investigation prompt from an opened-case payload."""
-    case_id = case.get("id")
-    reasons = case.get("reasons") or []
-    if isinstance(reasons, list):
-        reasons_text = "; ".join(str(r) for r in reasons if r) or "none"
-    else:
-        reasons_text = str(reasons)
-
-    iocs = case.get("iocs") or []
-    if isinstance(iocs, list) and iocs:
-        ioc_bits = []
-        for item in iocs[:8]:
-            if isinstance(item, dict):
-                ioc_bits.append(f"{item.get('ioc_type', 'ioc')}:{item.get('ioc')}")
-            else:
-                ioc_bits.append(str(item))
-        iocs_text = ", ".join(ioc_bits)
-    else:
-        src = case.get("source_ip")
-        iocs_text = f"source_ip:{src}" if src else "none"
-
-    enrichments = case.get("enrichments") or []
-    if isinstance(enrichments, list) and enrichments:
-        vt_bits = []
-        for e in enrichments[:6]:
-            if not isinstance(e, dict):
-                continue
-            if e.get("error"):
-                vt_bits.append(f"{e.get('ioc')}: error={e.get('error')}")
-            else:
-                vt_bits.append(
-                    f"{e.get('ioc')}: mal={e.get('malicious')} sus={e.get('suspicious')}"
-                )
-        vt_text = "; ".join(vt_bits) if vt_bits else "none"
-    else:
-        vt_text = "none"
-
-    api_url = (api_url or "").rstrip("/")
-    extra_http = ""
-    if api_url:
-        extra_http = f"""
-Optional extra (only if this VM can reach it): PATCH
-`{api_url}/tools/update_case/{case_id}` with author `cursor_cloud_agent`.
-Do **not** call approve/reject. Skip this if the URL is on a private LAN.
-"""
-
-    writeback = f"""
-## Write findings back
-The lab host that launched this agent copies your **final reply** onto the
-case automatically. Write the complete investigation note as that final
-message. Do **not** try to reach `192.168.50.254` or hang on LAN APIs.
-Do **not** approve/reject or execute containment.
-{extra_http}
-"""
-
+    """Propose-only prompt. The model sees the Pop packet and must not call the LAN."""
+    del api_url  # cloud VMs must not be given a lab API to call
+    packet = packet if isinstance(packet, dict) else case.get("incident_packet")
+    if not isinstance(packet, dict):
+        packet = {
+            "case_id": case.get("id"),
+            "title": case.get("title"),
+            "disposition": case.get("disposition"),
+            "severity": case.get("severity"),
+            "brief": case.get("brief") or {},
+            "related_case_ids": [],
+        }
+    packet_text = json.dumps(packet, default=str)[:6000]
+    case_id = packet.get("case_id") or case.get("id")
     return f"""You are an Agentic SOC investigation assistant for a lab environment.
 
 ## Hard rules
 - **Propose only.** Never execute containment, firewall changes, process kills, or SOAR actions.
-- Never call approve/reject endpoints; a human decides.
-- Use case payload, triage heuristics, and eval fixtures in this repo to enrich judgment.
-- Public Cursor cloud VMs **cannot** reach private LAN Wazuh at `192.168.50.254` unless a tunnel or self-hosted pool is configured. Prefer case payload + repo context; do not hang on unreachable LAN APIs.
+- Do **not** approve or reject. A human decides.
+- Do **not** call Wazuh, private LAN APIs, or any lab HTTP API. You already have the read-only packet below.
+- Use only that packet. Do not invent alerts, hosts, or enrichments that are not in it.
 
-## Case under investigation
-- case_id: {case_id}
-- title: {case.get("title") or "—"}
-- disposition: {case.get("disposition") or "—"}
-- severity: {case.get("severity") or "—"}
-- confidence: {case.get("confidence") or "—"}
-- alert_id: {case.get("alert_id") or "—"}
-- agent: {case.get("agent_name") or "—"}
-- rule_id / level: {case.get("rule_id") or "—"} / {case.get("rule_level") if case.get("rule_level") is not None else "—"}
-- timestamp: {case.get("timestamp") or "—"}
-- recommended_action: {case.get("recommended_action") or "investigate_and_document"}
-- reasons: {reasons_text}
-- IOCs: {iocs_text}
-- VirusTotal: {vt_text}
-- description: {case.get("description") or "—"}
-- full_log / snippet: {(case.get("full_log") or case.get("log_snippet") or "—")[:2000]}
+## Incident packet
+```json
+{packet_text}
+```
 
 ## Deliverable
-Produce a concise investigation note covering:
-1. What likely happened (lab noise vs suspicious)
-2. Evidence from the payload + repo playbooks
-3. Recommended next steps for a human analyst
-4. Explicit reminder that containment must stay manual
-{writeback}
+Write the complete note as your final reply. The lab host copies that reply onto incident #{case_id}. Cover:
+1. What this incident means (noise vs suspicious), citing the brief
+2. Evidence from the packet only
+3. Related case ids from the packet
+4. The three next steps for a human, and that containment stays manual
 """
 
 
@@ -202,6 +328,70 @@ def persist_investigation_note(
         outcome.get("run_id"),
     )
     return {"ok": True, "case_id": cid, "note_chars": len(note)}
+
+
+def persist_meaning_note(
+    case_id: Any,
+    packet: dict[str, Any],
+    *,
+    settings: Optional[Settings] = None,
+) -> dict[str, Any]:
+    """Write the deterministic incident explanation. No containment."""
+    if case_id is None or case_id == "":
+        return {"ok": False, "error": "no case_id"}
+    try:
+        cid = int(case_id)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"invalid case_id={case_id!r}"}
+    from agentic_soc.tools import SocTools
+
+    note = render_meaning_note(packet)
+    tools = SocTools(settings=settings)
+    updated = tools.update_case(cid, note=note, author=MEANING_AUTHOR)
+    if updated.get("error"):
+        return {"ok": False, "error": updated.get("error"), "case_id": cid}
+    return {"ok": True, "case_id": cid, "note_chars": len(note), "author": MEANING_AUTHOR}
+
+
+async def explain_incident(
+    tools: Any,
+    case: dict[str, Any],
+    *,
+    settings: Optional[Settings] = None,
+    alert_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    enrichments: Optional[list[dict[str, Any]]] = None,
+    cursor_enabled: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Gather the packet, write a meaning note, optionally kick cloud from that packet."""
+    settings = settings or get_settings()
+    case_id = case.get("id")
+    packet = await build_incident_packet(
+        tools,
+        case_id=int(case_id),
+        alert_id=alert_id or case.get("alert_id"),
+        agent_name=agent_name or case.get("agent_name"),
+        enrichments=enrichments if enrichments is not None else case.get("enrichments"),
+    )
+    persisted = persist_meaning_note(case_id, packet, settings=settings)
+    cloud_case = dict(case)
+    cloud_case["incident_packet"] = packet
+    cursor: dict[str, Any] = {"skipped": True, "reason": "disabled"}
+    if cursor_enabled or dry_run:
+        cursor = maybe_kick_after_case_open(
+            cloud_case,
+            settings=settings,
+            enabled=True if cursor_enabled or dry_run else None,
+            dry_run=dry_run,
+        )
+    return {
+        "ok": bool(persisted.get("ok")),
+        "case_id": case_id,
+        "packet": packet,
+        "meaning_note": persisted,
+        "cursor": cursor,
+    }
 
 
 def _notify_investigation_ready(
@@ -381,7 +571,8 @@ def kick_cursor_investigation(
     """
     settings = settings or get_settings()
     cfg = _resolve_config(settings)
-    prompt = build_investigation_prompt(case, api_url=cfg["api_url"])
+    packet = case.get("incident_packet") if isinstance(case.get("incident_packet"), dict) else None
+    prompt = build_investigation_prompt(case, packet=packet)
 
     if dry_run:
         return {

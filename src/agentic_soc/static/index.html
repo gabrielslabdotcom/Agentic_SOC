@@ -487,6 +487,44 @@
       letter-spacing: 0.04em;
     }
 
+    .happening {
+      margin: 0 0 0.85rem;
+      padding: 0.65rem 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .happening h2 {
+      margin: 0 0 0.4rem;
+      font-size: 0.85rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .happening-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .happening-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.4rem 0.55rem;
+      min-width: 12rem;
+      font-size: 0.8rem;
+      text-align: left;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .happening-card strong {
+      font-family: var(--mono);
+    }
+
     .suppress-panel {
       margin-top: 0.75rem;
       border-top: 1px solid var(--border);
@@ -619,6 +657,13 @@
       <div class="metric-chip"><div class="n" id="m-supp">—</div><div class="lbl">Suppressions</div></div>
       <div class="metric-chip"><div class="n" id="m-fb">—</div><div class="lbl">Feedback</div></div>
     </div>
+
+    <section class="happening" id="happening-now" aria-live="polite">
+      <h2>Happening now</h2>
+      <div class="happening-row" id="happening-row">
+        <span class="status-line">Loading open incidents…</span>
+      </div>
+    </section>
 
     <div class="layout">
       <aside class="panel">
@@ -840,6 +885,43 @@
         $("case-list").innerHTML =
           `<div class="detail empty">Failed to load cases: ${escapeHtml(e.message)}</div>`;
         toast(e.message, "error");
+      }
+    }
+
+    async function loadSituation() {
+      const row = $("happening-row");
+      if (!row) return;
+      try {
+        const data = await api("/tools/situation?limit=12");
+        const groups = data.groups || [];
+        if (!groups.length) {
+          const extra = data.ungrouped_open
+            ? " " + data.ungrouped_open + " open case(s) have no source IP or user, so they stay ungrouped."
+            : "";
+          row.innerHTML = `<span class="status-line">No active incidents with a source IP or user.${escapeHtml(extra)}</span>`;
+          return;
+        }
+        row.innerHTML = groups.map((g) => {
+          const who = g.source_ip
+            ? escapeHtml(g.source_ip)
+            : ("user " + escapeHtml(g.user || "—"));
+          const userBit = g.source_ip && g.user ? " · " + escapeHtml(g.user) : "";
+          const caseId = (g.case_ids || [])[0];
+          return `<button type="button" class="happening-card" data-case-id="${caseId || ""}">
+            <div><strong>${who}</strong>${userBit}</div>
+            <div class="status-line">${g.alert_count || 0} alert(s) · rule ${escapeHtml(g.top_rule || "—")} · ${escapeHtml(g.disposition || "—")} · ${escapeHtml(g.severity || "—")}</div>
+          </button>`;
+        }).join("");
+        row.querySelectorAll(".happening-card").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = Number(btn.dataset.caseId);
+            if (!id) return;
+            selectedId = id;
+            loadCaseDetail(id, true);
+          });
+        });
+      } catch (e) {
+        row.innerHTML = `<span class="status-line">Situation unavailable: ${escapeHtml(e.message)}</span>`;
       }
     }
 
@@ -1151,7 +1233,10 @@
         const invNotes = notes.filter((n) => {
           const a = (n.author || "").toLowerCase();
           const t = n.note || "";
-          return a === "cursor_cloud_agent" || t.indexOf("[cursor_investigation]") === 0;
+          return a === "cursor_cloud_agent"
+            || a === "incident_investigator"
+            || t.indexOf("[cursor_investigation]") === 0
+            || t.indexOf("[incident_meaning]") === 0;
         });
         const containmentNotes = notes.filter((n) => {
           const t = n.note || "";
@@ -1410,6 +1495,7 @@
         refreshTimer = setInterval(() => {
           loadCases();
           loadMetrics();
+          loadSituation();
         }, REFRESH_MS);
       }
     }
@@ -1421,6 +1507,7 @@
     $("btn-refresh").addEventListener("click", () => {
       loadCases();
       loadMetrics();
+      loadSituation();
       loadSuppressions();
     });
     $("auto-refresh").addEventListener("change", scheduleRefresh);
@@ -1431,6 +1518,7 @@
     loadConfig().then(() => {
       loadCases();
       loadMetrics();
+      loadSituation();
       loadSuppressions();
       scheduleRefresh();
     });

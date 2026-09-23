@@ -350,6 +350,49 @@ class DiscordNotifier:
             components=components,
         )
 
+    async def notify_severity_rose(
+        self,
+        case: dict[str, Any],
+        *,
+        previous: str,
+        current: str,
+    ) -> dict[str, Any]:
+        """Page only when an attached alert raises the open incident's severity."""
+        case_id = case.get("id")
+        severity = str(current or "medium").lower()
+        color = {
+            "critical": 0xE74C3C,
+            "high": 0xE67E22,
+            "medium": 0xF1C40F,
+            "low": 0x95A5A6,
+        }.get(severity, 0xE67E22)
+        ui_url = analyst_ui_base_url(self.settings)
+        embed = {
+            "title": f"Incident #{case_id} severity rose",
+            "description": _clip(f"{previous or '—'} → {current or '—'}", 200),
+            "color": color,
+            "fields": [
+                _field("Source", case.get("source_ip") or "—", inline=True),
+                _field("User", case.get("user") or "—", inline=True),
+                _field("Rule", case.get("rule_id") or "—", inline=True),
+                _field("Open", f"[Analyst UI]({ui_url}/)", inline=False, limit=200),
+            ],
+            "footer": {"text": "Same incident. Propose only — containment is not executed."},
+        }
+        components = None
+        if self.bot_configured and case_id is not None:
+            try:
+                cid = int(case_id)
+                if cid >= 1:
+                    components = build_outcome_components(cid)
+            except (TypeError, ValueError):
+                components = None
+        return await self.send_raw(
+            content="**Severity rose** on an open incident — review the new alert. No containment.",
+            embeds=[embed],
+            components=components,
+        )
+
     async def notify_investigation_ready(
         self,
         case: dict[str, Any],
