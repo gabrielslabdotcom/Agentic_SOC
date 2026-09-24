@@ -6,13 +6,21 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from agentic_soc.analyst_outcomes import coerce_analyst_disposition
-from agentic_soc.config import hostname
+from agentic_soc.config import get_settings, hostname
+from agentic_soc.connectors import (
+    known_connector,
+    public_catalog,
+    save_connector,
+    summary as connector_summary,
+    test_connector,
+    token_matches,
+)
 from agentic_soc.policy import ANALYST
 from agentic_soc.tools import SocTools
 
@@ -144,6 +152,23 @@ class AddSuppressionBody(BaseModel):
     expires_at: Optional[str] = None
 
 
+class ConnectorBody(BaseModel):
+    enabled: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+def _require_setup_token(token: Optional[str]) -> None:
+    if token_matches(token):
+        return
+    raise HTTPException(status_code=401, detail="setup token required")
+
+
+def _reload_tools() -> None:
+    """Drop the cached analyst tools so the next call reads the connector store."""
+    global _api_tools
+    _api_tools = None
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -191,6 +216,7 @@ def ui_config() -> dict[str, Any]:
         "auto_close_noise": os.environ.get("AUTONOMY_AUTO_CLOSE_NOISE", "true"),
         "banner": banner,
         "note": note,
+        "connectors": connector_summary(settings),
     }
 
 
@@ -494,6 +520,55 @@ async def enrich_ioc(
     if result.get("error") and result.get("status_code") in (401, 403):
         raise HTTPException(status_code=502, detail=result)
     return result
+
+
+@app.get("/tools/setup")
+def setup_status() -> dict[str, Any]:
+    """Whether the wizard can hand off to the queue. No secrets."""
+    settings = get_settings()
+    ready = bool((settings.wazuh_api_url or "").strip()) and bool(
+        (settings.wazuh_indexer_url or "").strip()
+    )
+    return {"ready": ready, "connectors": connector_summary(settings)}
+
+
+@app.get("/tools/connectors")
+def list_connectors() -> dict[str, Any]:
+    """Catalog and status. Secret fields are masked."""
+    return public_catalog(get_settings())
+
+
+@app.put("/tools/connectors/{connector_id}")
+def put_connector(
+    connector_id: str,
+    body: ConnectorBody,
+    x_setup_token: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    _require_setup_token(x_setup_token)
+    if not known_connector(connector_id):
+        raise HTTPException(status_code=404, detail="unknown connector")
+    try:
+        saved = save_connector(connector_id, enabled=body.enabled, config=body.config)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="unknown connector") from None
+    _reload_tools()
+    return saved
+
+
+@app.post("/tools/connectors/{connector_id}/test")
+async def post_connector_test(
+    connector_id: str,
+    body: Optional[ConnectorBody] = None,
+    x_setup_token: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    _require_setup_token(x_setup_token)
+    if not known_connector(connector_id):
+        raise HTTPException(status_code=404, detail="unknown connector")
+    config = body.config if body is not None else None
+    try:
+        return await test_connector(connector_id, config)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="unknown connector") from None
 
 
 @app.get("/")

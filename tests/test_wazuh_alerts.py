@@ -25,6 +25,21 @@ def test_since_sorts_asc_and_filters() -> None:
     assert body["query"]["bool"]["must_not"] == [{"terms": {"rule.id": ["100100"]}}]
 
 
+def test_blank_agent_name_does_not_filter() -> None:
+    body = build_alerts_search_body(min_level=8, agent_name="")
+    must = body["query"]["bool"]["must"]
+    assert {"range": {"rule.level": {"gte": 8}}} in must
+    assert not any("agent.name" in str(clause) for clause in must)
+
+
+def test_comma_separated_agents_use_terms() -> None:
+    body = build_alerts_search_body(
+        agent_name="pop-os-native,HYDRA-DC,SPIDERMAN",
+    )
+    must = body["query"]["bool"]["must"]
+    assert {"terms": {"agent.name": ["pop-os-native", "HYDRA-DC", "SPIDERMAN"]}} in must
+
+
 def test_blank_since_treated_as_absent() -> None:
     body = build_alerts_search_body(since="  ")
     assert body["sort"] == [{"@timestamp": {"order": "desc"}}]

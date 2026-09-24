@@ -377,20 +377,54 @@ async def explain_incident(
     persisted = persist_meaning_note(case_id, packet, settings=settings)
     cloud_case = dict(case)
     cloud_case["incident_packet"] = packet
-    cursor: dict[str, Any] = {"skipped": True, "reason": "disabled"}
-    if cursor_enabled or dry_run:
+    from agentic_soc.connectors import configured_llm
+
+    provider = configured_llm(settings)
+    if provider is None and (cursor_enabled or dry_run):
+        provider = "cursor"
+    cursor: dict[str, Any] = {"skipped": True, "reason": "disabled", "provider": provider or ""}
+    if provider == "cursor":
         cursor = maybe_kick_after_case_open(
             cloud_case,
             settings=settings,
-            enabled=True if cursor_enabled or dry_run else None,
+            enabled=True if cursor_enabled or dry_run or provider == "cursor" else None,
             dry_run=dry_run,
         )
+        cursor["provider"] = "cursor"
+    elif provider == "openai":
+        cursor = await _explain_with_openai(case_id, packet, settings)
     return {
         "ok": bool(persisted.get("ok")),
         "case_id": case_id,
         "packet": packet,
         "meaning_note": persisted,
         "cursor": cursor,
+        "llm": cursor,
+    }
+
+
+async def _explain_with_openai(
+    case_id: Any,
+    packet: dict[str, Any],
+    settings: Settings,
+) -> dict[str, Any]:
+    """Send the packet to the OpenAI-compatible connector and copy the reply."""
+    from agentic_soc.openai_llm import draft_meaning_note, persist_openai_note
+
+    drafted = await draft_meaning_note(settings, packet)
+    drafted["provider"] = "openai"
+    if not drafted.get("ok"):
+        return drafted
+    saved = persist_openai_note(case_id, drafted.get("note") or "", settings=settings)
+    if not saved.get("ok"):
+        return {"ok": False, "provider": "openai", "error": saved.get("error"), "note": drafted.get("note")}
+    return {
+        "ok": True,
+        "provider": "openai",
+        "skipped": False,
+        "note": drafted.get("note"),
+        "model": drafted.get("model"),
+        "persisted": saved,
     }
 
 

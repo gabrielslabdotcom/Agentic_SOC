@@ -1,0 +1,13 @@
+services:
+  agentic-soc:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - agentic-soc-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  agentic-soc-data:

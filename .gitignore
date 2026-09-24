@@ -10,6 +10,7 @@ __pycache__/
 data/*.db
 data/*.sqlite
 data/*.json
+data/setup_token
 !data/.gitkeep
 *.egg-info/
 dist/

@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # Optional self-hosted pool name (CloudAgentOptions.env type=pool)
     cursor_cloud_pool: str = ""
 
+    # OpenAI-compatible chat (connector catalog). Empty until that connector is enabled.
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    # cursor | openai | empty. Set by the connector store when a file exists.
+    llm_connector: str = ""
+
     # Analyst UI instance: pop-live | mac-local | empty (auto-detect from cases path)
     agentic_soc_instance: str = ""
 
@@ -84,4 +91,12 @@ def hostname() -> str:
 
 
 def get_settings() -> Settings:
-    return Settings()
+    """Load ``.env``, then overlay ``data/connectors.json`` when that file exists.
+
+    Appliance mode with no saved Wazuh blanks the lab host defaults so the
+    poller cannot reach ``192.168.50.254`` before the wizard.
+    """
+    base = Settings()
+    from agentic_soc.connectors import apply_store
+
+    return apply_store(base)

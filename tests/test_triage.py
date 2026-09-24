@@ -143,6 +143,18 @@ def test_agent_queue_full_high_level_still_skipped():
     assert gate["reason"] == "agent_capacity_noise"
 
 
+def test_ad_kerberoast_rule_opens():
+    alert = _alert(
+        rule_id="100400",
+        rule_level=12,
+        description="Possible Kerberoast: RC4 service ticket for a user account.",
+        groups=["windows", "attack"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "true_positive"
+    assert should_open_case(alert, j)["open"] is True
+
+
 def test_hydra_style_auth_burst_opens():
     alert = _alert(
         rule_id="5503",

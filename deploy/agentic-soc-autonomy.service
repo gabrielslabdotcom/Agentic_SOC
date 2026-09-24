@@ -13,7 +13,7 @@ Environment=AUTONOMY_INTERVAL=120
 Environment=AUTONOMY_MIN_LEVEL=8
 Environment=AUTONOMY_LIMIT=40
 Environment=AUTONOMY_MAX_CASES=10
-Environment=AUTONOMY_AGENT_NAME=pop-os-native
+# Leave AUTONOMY_AGENT_NAME unset to triage every agent and non-agent source.
 Environment=AUTONOMY_ENRICH=true
 Environment=AUTONOMY_DISCORD=true
 Environment=AUTONOMY_EXCLUDE_UFW_BLOCKS=true

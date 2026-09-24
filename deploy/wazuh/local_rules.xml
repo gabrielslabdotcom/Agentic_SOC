@@ -51,3 +51,75 @@
     <group>asus,firewall_drop,</group>
   </rule>
 </group>
+
+<group name="local,privilege_escalation,">
+  <rule id="100300" level="10">
+    <if_sid>5405</if_sid>
+    <description>Privilege escalation attempt: user not in sudoers.</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+    <group>authentication_failed,privilege_escalation,attack,</group>
+  </rule>
+</group>
+
+<group name="local,windows,active_directory,">
+  <rule id="100400" level="12">
+    <if_sid>60106</if_sid>
+    <field name="win.system.eventID">^4769$</field>
+    <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
+    <field name="win.eventdata.serviceName" negate="yes">\$$</field>
+    <description>Possible Kerberoast: RC4 service ticket for a user account.</description>
+    <mitre>
+      <id>T1558.003</id>
+    </mitre>
+    <group>windows,windows_security,attack,kerberos,</group>
+  </rule>
+  <rule id="100401" level="12">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4768$</field>
+    <field name="win.eventdata.preAuthType">^0$</field>
+    <description>Possible AS-REP roast: Kerberos TGT without pre-authentication.</description>
+    <mitre>
+      <id>T1558.004</id>
+    </mitre>
+    <group>windows,windows_security,attack,kerberos,</group>
+  </rule>
+  <rule id="100410" level="12">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4662$</field>
+    <match>1131f6aa-9c07-11d1-f79f-00c04fc2dcd2|1131f6ad-9c07-11d1-f79f-00c04fc2dcd2|89e95b76-444d-4c62-991a-0facbeda640c</match>
+    <description>Possible DCSync: directory replication rights used.</description>
+    <mitre>
+      <id>T1003.006</id>
+    </mitre>
+    <group>windows,windows_security,attack,credential_access,</group>
+  </rule>
+  <rule id="100420" level="10">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4886$|^4887$</field>
+    <description>Active Directory certificate requested or issued.</description>
+    <mitre>
+      <id>T1649</id>
+    </mitre>
+    <group>windows,windows_security,attack,</group>
+  </rule>
+  <rule id="100421" level="8">
+    <if_sid>60121</if_sid>
+    <description>Computer account added or changed in Active Directory.</description>
+    <mitre>
+      <id>T1136.002</id>
+    </mitre>
+    <group>windows,windows_security,attack,</group>
+  </rule>
+  <rule id="100430" level="10">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^5136$</field>
+    <match>msDS-AllowedToActOnBehalfOfOtherIdentity</match>
+    <description>Resource-based constrained delegation attribute changed.</description>
+    <mitre>
+      <id>T1222</id>
+    </mitre>
+    <group>windows,windows_security,attack,</group>
+  </rule>
+</group>

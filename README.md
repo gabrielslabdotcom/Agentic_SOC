@@ -94,6 +94,25 @@ Workstation
 | Indexer | `https://<SIEM_HOST>:9200` |
 | Analyst UI (live cases) | `http://<SIEM_HOST>:8080/` |
 
+## Try the appliance
+
+Someone outside this lab can run the console with Docker. The image does not include the lab host or passwords. The first browser open is the setup wizard.
+
+The console has no login. The setup token only protects connector writes (API keys and URLs). Publish port `8080` on localhost or a trusted network.
+
+```bash
+docker compose up -d
+docker compose logs -f    # first boot prints: Setup token: …
+```
+
+Open `http://<host>:8080/`. Paste the setup token. Enter your Wazuh manager API and indexer. If Wazuh is on the same machine, do not use `127.0.0.1` — that address is the container. Use the host’s LAN address or `host.docker.internal`.
+
+An LLM (Cursor or any OpenAI-compatible chat API), VirusTotal, and Discord are optional. You still bring your own Wazuh. This app does not install a SIEM. Containment stays off.
+
+The same **Connectors** page can change those settings later. Secrets are stored in `connectors.json` on the Compose volume and are not shown again after save.
+
+The venv and systemd install below is the lab path. It keeps using `.env`.
+
 ## Quick start
 
 Wazuh is installed separately. Use the official [wazuh-docker](https://github.com/wazuh/wazuh-docker) single-node guide, or any manager and indexer you already run.

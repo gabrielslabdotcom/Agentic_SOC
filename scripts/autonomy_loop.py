@@ -101,7 +101,8 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--agent-name",
-        default=os.environ.get("AUTONOMY_AGENT_NAME", "pop-os-native"),
+        default=os.environ.get("AUTONOMY_AGENT_NAME", ""),
+        help="Optional agent name, or comma-separated names. Empty watches every alert.",
     )
     p.add_argument(
         "--exclude-ufw-blocks",
@@ -581,6 +582,16 @@ async def _explain_incident(
         )
 
 
+def _wazuh_ready() -> bool:
+    """False in the appliance until the wizard saves a Wazuh API and indexer URL."""
+    from agentic_soc.config import get_settings
+
+    settings = get_settings()
+    return bool((settings.wazuh_api_url or "").strip()) and bool(
+        (settings.wazuh_indexer_url or "").strip()
+    )
+
+
 def _install_signal_handlers() -> None:
     def _handler(signum: int, _frame: Any) -> None:
         LOG.info("received signal %s — stopping after the current alert", signum)
@@ -610,6 +621,13 @@ async def main_async(args: argparse.Namespace) -> int:
     )
 
     while not _STOP.is_set():
+        if not _wazuh_ready():
+            LOG.info("Wazuh is not configured — waiting for the setup wizard")
+            try:
+                await asyncio.wait_for(_STOP.wait(), timeout=max(5, min(args.interval, 15)))
+            except asyncio.TimeoutError:
+                pass
+            continue
         try:
             report = await run_cycle(args, state)
             _save_state(state_path, state)

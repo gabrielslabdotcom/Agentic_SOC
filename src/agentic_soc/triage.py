@@ -64,6 +64,9 @@ RULE_ASUS_SYSLOG = "100200"
 RULE_ASUS_WEB_LOGIN_OK = "100201"
 RULE_ASUS_WEB_LOGIN_FAIL = "100202"
 RULE_ASUS_KERNEL_DROP = "100203"
+AD_ATTACK_RULES = frozenset(
+    {"100400", "100401", "100410", "100420", "100421", "100430"}
+)
 ROUTER_NOISE_RULE_IDS = frozenset(
     {RULE_ASUS_SYSLOG, RULE_ASUS_WEB_LOGIN_OK, RULE_ASUS_KERNEL_DROP}
 )
@@ -190,6 +193,36 @@ def _alert_blobs(alert: dict[str, Any]) -> list[str]:
     return blobs
 
 
+_WIN_IP_SKIP = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0", "::", "localhost"})
+
+
+def _win_eventdata(alert: dict[str, Any]) -> dict[str, Any]:
+    """Windows Security EventData, when the alert is a win.eventdata document."""
+    raw = alert.get("raw")
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data")
+    if not isinstance(data, dict):
+        return {}
+    win = data.get("win")
+    if not isinstance(win, dict):
+        return {}
+    eventdata = win.get("eventdata")
+    return eventdata if isinstance(eventdata, dict) else {}
+
+
+def _win_field(eventdata: dict[str, Any], *keys: str) -> Optional[str]:
+    lowered = {str(k).lower(): v for k, v in eventdata.items()}
+    for key in keys:
+        val = lowered.get(key.lower())
+        if val is None:
+            continue
+        text = str(val).strip()
+        if text:
+            return text
+    return None
+
+
 def _data_field(alert: dict[str, Any], keys: tuple[str, ...]) -> Optional[str]:
     raw = alert.get("raw")
     if not isinstance(raw, dict):
@@ -209,13 +242,22 @@ def _data_field(alert: dict[str, Any], keys: tuple[str, ...]) -> Optional[str]:
 def extract_source_ip(alert: dict[str, Any]) -> Optional[str]:
     """Best-effort attacker/source IP, including private lab addresses.
 
-    Checks structured fields (srcip, rhost) then UFW SRC= and sshd/PAM
-    "from <ip>" / rhost= lines. Private IPs are kept — they are the actor
-    in this lab. VirusTotal enrichment still skips them separately.
+    Checks structured fields (srcip, rhost), Windows eventdata.ipAddress,
+    then UFW SRC= and sshd/PAM "from <ip>" / rhost= lines. Private IPs are
+    kept — they are the actor in this lab. VirusTotal enrichment still
+    skips them separately.
     """
     structured = _data_field(alert, ("srcip", "src_ip", "source_ip", "rhost"))
     if structured and _IPV4_FIND.fullmatch(structured):
         return structured
+
+    win_ip = _win_field(_win_eventdata(alert), "ipAddress", "IpAddress")
+    if (
+        win_ip
+        and win_ip not in _WIN_IP_SKIP
+        and _IPV4_FIND.fullmatch(win_ip)
+    ):
+        return win_ip
 
     for blob in _alert_blobs(alert):
         m = _SRC_IP_RE.search(blob)
@@ -228,10 +270,18 @@ def extract_source_ip(alert: dict[str, Any]) -> Optional[str]:
 
 
 def extract_user(alert: dict[str, Any]) -> Optional[str]:
-    """Account named in the alert (srcuser, user=, Invalid user, PAM user=)."""
+    """Account named in the alert (srcuser, Windows targetUserName, user=)."""
     structured = _data_field(alert, ("srcuser", "dstuser", "user"))
     if structured and structured.lower() not in _SKIP_USERS:
         return structured
+
+    win_user = _win_field(_win_eventdata(alert), "targetUserName", "TargetUserName")
+    if (
+        win_user
+        and win_user.lower() not in _SKIP_USERS
+        and not win_user.endswith("$")
+    ):
+        return win_user
 
     for blob in _alert_blobs(alert):
         m = _USER_RE.search(blob)
@@ -663,6 +713,22 @@ def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]
             "confidence": confidence,
             "severity": severity,
             "score": round(max(score, 0.0), 2),
+            "reasons": reasons,
+            "recommended_action": action,
+        }
+
+    if rid in AD_ATTACK_RULES:
+        score += 6
+        reasons.append(f"Active Directory attack rule {rid}")
+        disposition = "true_positive" if level_i >= 12 else "suspicious"
+        confidence = 0.8
+        severity = _severity_from(level_i, disposition)
+        action = _recommend_action(disposition, level_i, 0)
+        return {
+            "disposition": disposition,
+            "confidence": confidence,
+            "severity": severity,
+            "score": round(score, 2),
             "reasons": reasons,
             "recommended_action": action,
         }

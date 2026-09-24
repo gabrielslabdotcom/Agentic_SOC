@@ -6,17 +6,19 @@
   <title>Agentic SOC Analyst</title>
   <style>
     :root {
-      --bg: #0e1116;
-      --bg-panel: #161b22;
-      --bg-elevated: #1c2330;
-      --border: #2a3341;
-      --text: #e6edf3;
-      --muted: #8b97a8;
-      --accent: #3d9a6a;
-      --accent-dim: #2a6b4a;
-      --danger: #c45c5c;
-      --warn: #c9a227;
-      --info: #5b8def;
+      --bg: #0c1222;
+      --bg-panel: #141c2f;
+      --panel: var(--bg-panel);
+      --bg-elevated: #1b2640;
+      --border: #2a3650;
+      --text: #e7eef8;
+      --muted: #93a0b8;
+      --accent: #7aa2ff;
+      --accent-dim: #3d5fbf;
+      --danger: #f07178;
+      --warn: #e6b450;
+      --ok: #3dbe8c;
+      --info: #8eb6ff;
       --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
       --mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
     }
@@ -34,11 +36,16 @@
 
     body {
       background-image:
-        radial-gradient(ellipse 80% 50% at 0% 0%, rgba(61, 154, 106, 0.08), transparent 50%),
-        linear-gradient(180deg, #12161d 0%, var(--bg) 40%);
+        radial-gradient(ellipse 80% 50% at 0% 0%, rgba(122, 162, 255, 0.1), transparent 50%),
+        linear-gradient(180deg, #10182c 0%, var(--bg) 40%);
     }
 
-    a { color: var(--info); text-decoration: none; }
+    ::selection {
+      background: rgba(122, 162, 255, 0.35);
+      color: var(--text);
+    }
+
+    a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
     .shell {
@@ -81,12 +88,20 @@
     .header-meta a { font-family: var(--font); }
 
     .lab-banner {
-      background: rgba(201, 162, 39, 0.12);
-      border: 1px solid rgba(201, 162, 39, 0.35);
+      background: rgba(230, 180, 80, 0.12);
+      border: 1px solid rgba(230, 180, 80, 0.4);
       color: #e8d48b;
       padding: 0.55rem 0.85rem;
       margin-bottom: 0.65rem;
       font-size: 0.85rem;
+    }
+
+    .lab-banner summary {
+      cursor: pointer;
+    }
+
+    .lab-banner details p {
+      margin: 0.45rem 0 0;
     }
 
     .instance-banner {
@@ -97,9 +112,9 @@
     }
 
     .instance-banner.pop-live {
-      background: rgba(61, 154, 106, 0.16);
-      border: 1px solid rgba(61, 154, 106, 0.45);
-      color: #8fd4b0;
+      background: rgba(122, 162, 255, 0.16);
+      border: 1px solid rgba(122, 162, 255, 0.45);
+      color: #c9d6ff;
     }
 
     .instance-banner.mac-local {
@@ -128,7 +143,7 @@
       text-transform: uppercase;
     }
 
-    .decision-legend .approve-label { color: #8fd4b0; }
+    .decision-legend .approve-label { color: var(--ok); }
     .decision-legend .reject-label { color: #e0a0a0; }
 
     .decision-legend p {
@@ -213,11 +228,11 @@
     button.primary {
       background: var(--accent-dim);
       border-color: var(--accent);
-      color: #e8fff2;
+      color: #eef4ff;
     }
 
     button.danger {
-      background: rgba(196, 92, 92, 0.2);
+      background: rgba(240, 113, 120, 0.2);
       border-color: var(--danger);
       color: #f0c0c0;
     }
@@ -286,7 +301,7 @@
 
     .case-row:hover { background: rgba(255, 255, 255, 0.03); }
     .case-row.active {
-      background: rgba(61, 154, 106, 0.1);
+      background: rgba(122, 162, 255, 0.12);
       box-shadow: inset 3px 0 0 var(--accent);
     }
 
@@ -318,7 +333,7 @@
     .badge.status-approved, .badge.status-confirmed_compromise { border-color: var(--danger); color: #f0a8a8; }
     .badge.status-auto_closed { border-color: #7a8aa0; color: #b8c4d6; }
     .badge.status-rejected, .badge.status-false_positive { border-color: var(--muted); color: var(--muted); }
-    .badge.status-benign { border-color: var(--accent); color: #8fd4b0; }
+    .badge.status-benign { border-color: var(--ok); color: #8fe0bf; }
     .badge.status-informational { border-color: var(--info); color: #9bb8f0; }
     .badge.status-duplicate { border-color: #7a8aa0; color: #b8c4d6; }
 
@@ -330,7 +345,7 @@
     .badge.disp-suspicious { border-color: var(--warn); color: #e8d48b; }
     .badge.disp-false_positive { border-color: var(--muted); color: var(--muted); }
     .badge.disp-informational { border-color: var(--info); color: #9bb8f0; }
-    .badge.disp-benign { border-color: var(--accent); color: #8fd4b0; }
+    .badge.disp-benign { border-color: var(--ok); color: #8fe0bf; }
     .badge.disp-duplicate { border-color: #7a8aa0; color: #b8c4d6; }
 
     .detail { padding: 1rem; }
@@ -442,7 +457,7 @@
 
     .toast.show { display: block; }
     .toast.error { border-color: var(--danger); }
-    .toast.ok { border-color: var(--accent); }
+    .toast.ok { border-color: var(--ok); }
 
     .status-line {
       color: var(--muted);
@@ -596,9 +611,97 @@
       background: color-mix(in srgb, var(--panel) 80%, var(--bg));
     }
 
-    .act-now h3 {
-      margin: 0 0 0.35rem;
-      font-size: 0.95rem;
+    .act-now h3,
+    .decision-headline {
+      margin: 0.4rem 0 0.65rem;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.5rem;
+      margin: 0 0 0.75rem;
+    }
+
+    .facts > div {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.55rem;
+      min-width: 0;
+    }
+
+    .facts dt {
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .facts dd {
+      margin: 0.15rem 0 0;
+      word-break: break-word;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 720px) {
+      .facts { grid-template-columns: 1fr 1fr; }
+    }
+
+    .why-line {
+      margin: 0 0 0.65rem;
+    }
+
+    .decide {
+      margin-top: 0.85rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+
+    details.outcome-help {
+      margin-top: 0.65rem;
+    }
+
+    details.outcome-help summary,
+    details.more-panel > summary,
+    .timeline summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    details.more-panel {
+      margin-top: 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.6rem 0.85rem 0.85rem;
+      background: var(--bg-panel);
+    }
+
+    details.more-panel > summary {
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .timeline {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .timeline > li {
+      margin-bottom: 0.55rem;
+      padding-bottom: 0.55rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .timeline .tl-sentence {
+      margin-bottom: 0.2rem;
     }
 
     .act-now ol {
@@ -619,6 +722,66 @@
       color: var(--muted);
       font-size: 0.8rem;
     }
+
+    .nav-connectors {
+      display: inline-block;
+      margin-top: 0.35rem;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: rgba(8, 12, 22, 0.72);
+      overflow: auto;
+      padding: 2rem 1rem 3rem;
+    }
+
+    .overlay[hidden] { display: none; }
+
+    .overlay-card {
+      max-width: 820px;
+      margin: 0 auto;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      padding: 1.25rem 1.35rem 1.5rem;
+    }
+
+    .overlay-card h2 { margin: 0 0 0.35rem; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0 0 1rem;
+    }
+
+    .conn-card {
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      padding: 0.9rem 1rem;
+      margin: 0 0 0.75rem;
+    }
+
+    .conn-card h3 {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .conn-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: baseline;
+      margin-bottom: 0.35rem;
+    }
+
+    .field { margin: 0.45rem 0; }
+    .field label { display: block; color: var(--muted); font-size: 0.78rem; margin-bottom: 0.15rem; }
+    .field input[type="text"],
+    .field input[type="password"] { width: 100%; }
+
+    .row-actions { display: flex; gap: 0.5rem; margin-top: 0.65rem; }
+    .check { display: flex; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
   </style>
 </head>
 <body>
@@ -631,20 +794,26 @@
       <div class="header-meta">
         <div id="cases-path">Cases DB: …</div>
         <div id="wazuh-link"><a href="#" target="_blank" rel="noopener">Open Wazuh dashboard</a></div>
+        <a class="nav-connectors" href="#connectors" id="nav-connectors">Connectors</a>
       </div>
     </header>
 
     <div class="lab-banner" id="lab-banner">
-      Lab mode: analyst outcomes only record the decision (case status + note).
-      Containment is never executed from this UI.
-      <strong>False Positive</strong>, <strong>Benign</strong>,
-      <strong>Informational</strong>, and <strong>Duplicate</strong> skip the same
-      rule_id + source IP for 14 days. <strong>Confirmed Compromise</strong> does not skip.
-      Analyst <strong>suppressions</strong> auto-close matching rules (any source or a
-      specific IP) before Discord / Cursor. Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
-      are OR'd in without lowering that floor. Informational / false-positive
-      cases may auto-close without Discord. UFW deny is a dry-run plan unless
-      CONTAINMENT_ENABLED is on (still a separate HITL click). Containment stays off by default.
+      <details>
+        <summary>Lab mode · decisions are recorded only · containment is not executed.</summary>
+        <p>
+          Analyst outcomes only record the decision (case status + note).
+          Containment is never executed from this UI.
+          <strong>False Positive</strong>, <strong>Benign</strong>,
+          <strong>Informational</strong>, and <strong>Duplicate</strong> skip the same
+          rule_id + source IP for 14 days. <strong>Confirmed Compromise</strong> does not skip.
+          Analyst <strong>suppressions</strong> auto-close matching rules (any source or a
+          specific IP) before Discord / Cursor. Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
+          are OR'd in without lowering that floor. Informational / false-positive
+          cases may auto-close without Discord. UFW deny is a dry-run plan unless
+          CONTAINMENT_ENABLED is on (still a separate HITL click). Containment stays off by default.
+        </p>
+      </details>
     </div>
     <div class="instance-banner mac-local" id="instance-banner">
       Identifying cases database…
@@ -744,6 +913,45 @@
 
   <div id="toast" class="toast" role="status"></div>
 
+  <div class="overlay" id="setup-wizard" hidden>
+    <div class="overlay-card">
+      <h2>Set up Agentic SOC</h2>
+      <p class="hint">
+        Wazuh is required. An LLM, VirusTotal, and Discord are optional.
+        From inside Docker, <code>127.0.0.1</code> is the container itself.
+        If Wazuh runs on the same machine, use that machine’s LAN address or
+        <code>host.docker.internal</code>.
+      </p>
+      <div class="field">
+        <label for="wizard-token">Setup token</label>
+        <input id="wizard-token" type="password" autocomplete="off" placeholder="From the container logs on first boot" />
+      </div>
+      <div id="wizard-forms"></div>
+      <div class="row-actions">
+        <button type="button" class="primary" id="wizard-save">Save connectors</button>
+        <button type="button" id="wizard-open" disabled>Open the queue</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="connectors-panel" hidden>
+    <div class="overlay-card">
+      <div class="conn-head">
+        <h2>Connectors</h2>
+        <button type="button" class="ghost" id="connectors-close">Back to queue</button>
+      </div>
+      <p class="hint">
+        API keys stay on this host. After you save, the form shows a masked hint instead of the secret.
+        The setup token is printed once when the appliance starts, and stored in <code>data/setup_token</code>.
+      </p>
+      <div class="field">
+        <label for="connectors-token">Setup token</label>
+        <input id="connectors-token" type="password" autocomplete="off" />
+      </div>
+      <div id="connectors-forms"></div>
+    </div>
+  </div>
+
   <script>
     const ANALYST_OUTCOMES = [
       {
@@ -758,7 +966,7 @@
         label: "Benign",
         skip: true,
         cls: "ghost",
-        text: "The event is real and the rule fired correctly, but activity is authorized or expected (lab nmap, known hydra replay, admin typo). Skips repeats.",
+        text: "The event is real and the rule fired correctly, but activity is authorized or expected (lab nmap, known hydra replay, MARVEL.local AD lab replay, admin typo). Skips repeats.",
       },
       {
         id: "informational",
@@ -1159,6 +1367,76 @@
       }
     }
 
+    function noteField(text, key) {
+      const prefix = key + "=";
+      const lines = String(text || "").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].indexOf(prefix) === 0) return lines[i].slice(prefix.length);
+      }
+      return "";
+    }
+
+    function isInvestigationNote(n) {
+      const a = (n.author || "").toLowerCase();
+      const t = n.note || "";
+      return a === "cursor_cloud_agent"
+        || a === "incident_investigator"
+        || t.indexOf("[cursor_investigation]") === 0
+        || t.indexOf("[incident_meaning]") === 0;
+    }
+
+    function isContainmentNote(n) {
+      const t = n.note || "";
+      return t.indexOf("[containment_plan]") === 0 || t.indexOf("[containment_execute]") === 0;
+    }
+
+    function timelineLabel(n) {
+      const t = (n.note || "").trim();
+      const a = (n.author || "").toLowerCase();
+      const m = t.match(/^\[([^\]]+)\]/);
+      if (m) return m[1].replace(/_/g, " ");
+      if (a === "autonomy_loop") return "autonomy event";
+      if (a === "agent") return "agent note";
+      const first = (t.split("\n")[0] || "note").trim();
+      return first.length > 80 ? first.slice(0, 77) + "…" : (first || "note");
+    }
+
+    function activityTimeline(notes) {
+      const items = [];
+      (notes || []).forEach((n) => {
+        if (isInvestigationNote(n) || isContainmentNote(n)) return;
+        const text = n.note || "";
+        const when = escapeHtml(n.created_at || "");
+        const who = escapeHtml(n.author || "?");
+        if (text.indexOf("[human_approval]") !== -1) {
+          const sentence = noteField(text, "note") || text;
+          const header = text.match(/\[human_approval\]\s+([A-Za-z0-9_]+)/);
+          const disp = noteField(text, "analyst_disposition") || (header ? header[1].toLowerCase() : "");
+          const extra = sentence !== text
+            ? `<details><summary>Full note</summary><div class="prose">${escapeHtml(text)}</div></details>`
+            : "";
+          items.push(`<li>
+            <div class="tl-sentence">${escapeHtml(sentence)}</div>
+            <div class="status-line">${when} · ${who}${disp ? " · " + escapeHtml(disp) : ""}</div>
+            ${extra}
+          </li>`);
+          return;
+        }
+        items.push(`<li>
+          <details>
+            <summary>${when} · ${who} · ${escapeHtml(timelineLabel(n))}</summary>
+            <div class="prose">${escapeHtml(text)}</div>
+          </details>
+        </li>`);
+      });
+      if (!items.length) return "";
+      return `
+        <div class="section">
+          <h3>Activity</h3>
+          <ul class="timeline">${items.join("")}</ul>
+        </div>`;
+    }
+
     async function loadCaseDetail(caseId, scroll) {
       try {
         const c = await api("/tools/get_case/" + caseId);
@@ -1183,11 +1461,7 @@
           }
         }
 
-        let relatedBlock = `
-          <div class="section">
-            <h3>Related cases</h3>
-            <p class="status-line">No related cases.</p>
-          </div>`;
+        let relatedBlock = "";
         try {
           const rel = await api("/tools/find_related?case_id=" + caseId);
           const relCases = rel.related_cases || [];
@@ -1213,13 +1487,6 @@
                   </button>`;
                 }).join("")}
               </div>`;
-          } else {
-            relatedBlock = `
-              <div class="section">
-                <h3>Related cases</h3>
-                ${entLine || ""}
-                <p class="status-line">No related cases (same IP / hash / user / domain).</p>
-              </div>`;
           }
         } catch (e) {
           relatedBlock = `
@@ -1242,7 +1509,6 @@
           const t = n.note || "";
           return t.indexOf("[containment_plan]") === 0 || t.indexOf("[containment_execute]") === 0;
         });
-        const otherNotes = notes.filter((n) => invNotes.indexOf(n) < 0 && containmentNotes.indexOf(n) < 0);
         let investigationBlock;
         if (invNotes.length) {
           investigationBlock = `
@@ -1254,73 +1520,65 @@
                 <div class="prose">${escapeHtml(n.note || "")}</div>
               `).join("")}
             </div>`;
-        } else if ((c.status || "") === "auto_closed") {
+        } else if ((c.status || "open") !== "open") {
           investigationBlock = "";
         } else {
           investigationBlock = `
             <div class="section investigation-panel">
               <h3>Cursor investigation</h3>
-              <p class="investigation-empty">No investigation note yet. The cloud agent may still be running, or the hook was skipped. Refresh this case in a minute.</p>
+              <p class="investigation-empty">Investigation not in yet.</p>
             </div>`;
         }
         const canExecute = !!(uiConfig && uiConfig.containment_enabled);
         const srcIp = c.source_ip || "";
         const containmentBlock = `
           <div class="section containment-panel">
-            <h3>Containment plan (dry-run)</h3>
-            <p class="status-line">
-              Approve / outcomes never run UFW. A deny-from-source plan can be recorded here.
-              Execute stays off unless <code>CONTAINMENT_ENABLED=true</code> on this host
-              (still a separate click, never automatic). Protected: Pop host 192.168.50.254.
-            </p>
-            ${srcIp ? `<p class="status-line">Case source IP: <code>${escapeHtml(srcIp)}</code></p>` : `<p class="status-line">No source IP on this case — cannot plan a deny.</p>`}
+            <h3>Containment plan</h3>
+            <p class="status-line">Outcomes never run UFW.</p>
+            ${srcIp ? `<p class="status-line">Source IP: <code>${escapeHtml(srcIp)}</code></p>` : `<p class="status-line">No source IP on this case — cannot plan a deny.</p>`}
             ${containmentNotes.length ? containmentNotes.map((n) => `
               <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
               <div class="prose">${escapeHtml(n.note || "")}</div>
-            `).join("") : `<p class="investigation-empty">No plan recorded yet.</p>`}
+            `).join("") : ""}
             <div class="actions">
               <button type="button" class="ghost" id="btn-plan-containment" ${srcIp ? "" : "disabled"}>Record UFW plan</button>
               <button type="button" class="danger" id="btn-exec-containment" ${srcIp && canExecute ? "" : "disabled"}>
                 ${canExecute ? "Execute UFW deny" : "Execute disabled (dry-run)"}
               </button>
             </div>
+            <details>
+              <summary>UFW policy</summary>
+              <p class="status-line">
+                Approve / outcomes never run UFW. A deny-from-source plan can be recorded here.
+                Execute stays off unless <code>CONTAINMENT_ENABLED=true</code> on this host
+                (still a separate click, never automatic). Protected: Pop host 192.168.50.254.
+              </p>
+            </details>
           </div>`;
-        const notesHtml = otherNotes.length
-          ? `<ul class="notes">${otherNotes.map((n) => `
-              <li>
-                <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
-                <div class="prose" style="max-height:120px">${escapeHtml(n.note || "")}</div>
-              </li>`).join("")}</ul>`
-          : `<p class="status-line">No other notes.</p>`;
         const pendingHitl = (c.status || "open") === "open";
         const decisionBlock = pendingHitl ? `
-          <div class="section">
-            <h3>Analyst decision</h3>
-            <div class="decision-legend">
-              ${ANALYST_OUTCOMES.map((o) => `
-              <article>
-                <h4>${escapeHtml(o.label)}${o.skip ? "" : " (no skip)"}</h4>
-                <p>${escapeHtml(o.text)} <strong>No firewall, isolation, or other containment is executed.</strong></p>
-              </article>`).join("")}
-            </div>
+          <div class="decide">
             <label for="decision-note" class="status-line">Note (optional) — why you closed this case</label>
             <textarea id="decision-note" placeholder="e.g. Confirmed lab nmap from Kali; document only"></textarea>
             <div class="actions">
               ${ANALYST_OUTCOMES.map((o) => `
               <button type="button" class="${o.cls}" data-disposition="${o.id}">${escapeHtml(o.label)}</button>`).join("")}
             </div>
-            <p class="status-line" style="margin-top:0.5rem">
-              Same path as <code>approve_case.py --disposition …</code> — writes status + an audit note only.
-            </p>
+            <details class="outcome-help">
+              <summary>What these labels mean</summary>
+              <div class="decision-legend">
+                ${ANALYST_OUTCOMES.map((o) => `
+                <article>
+                  <h4>${escapeHtml(o.label)}${o.skip ? "" : " (no skip)"}</h4>
+                  <p>${escapeHtml(o.text)} <strong>No firewall, isolation, or other containment is executed.</strong></p>
+                </article>`).join("")}
+              </div>
+            </details>
           </div>` : `
-          <div class="section">
-            <h3>Analyst decision</h3>
-            <p class="status-line">
-              This case is already <code>${escapeHtml(c.status || "")}</code>
-              ${c.analyst_disposition ? `(analyst: <code>${escapeHtml(c.analyst_disposition)}</code>)` : ""}.
-              Closing outcomes apply to open cases only. Containment was never executed.
-            </p>
-          </div>`;
+          <p class="status-line decide">
+            This case is already <code>${escapeHtml(c.status || "")}</code>${c.analyst_disposition ? ` (analyst: <code>${escapeHtml(c.analyst_disposition)}</code>)` : ""}.
+            Closing outcomes apply to open cases only. Containment was never executed.
+          </p>`;
 
         const brief = c.brief || {};
         const actors = brief.actors || {};
@@ -1329,37 +1587,15 @@
         const wazuh = brief.wazuh_url
           ? `<p class="status-line"><a href="${escapeHtml(brief.wazuh_url)}" target="_blank" rel="noopener">Open Wazuh</a></p>`
           : "";
-        const actNow = `
-          <div class="act-now">
-            <h3>Act now</h3>
-            <p>${escapeHtml(brief.headline || c.title || "")}</p>
-            <dl class="kv">
-              <dt>Source</dt><dd>${escapeHtml(actors.source_ip || c.source_ip || "—")}</dd>
-              <dt>User</dt><dd>${escapeHtml(actors.user || "—")}</dd>
-              <dt>Host</dt><dd>${escapeHtml(actors.agent || c.agent_name || "—")}</dd>
-              <dt>Rule</dt><dd>${escapeHtml((rule.id || c.rule_id || "—") + (rule.level != null ? " · level " + rule.level : ""))}</dd>
-            </dl>
-            ${brief.why && brief.why.length ? `<p class="status-line">${escapeHtml(brief.why.join("; "))}</p>` : ""}
-            ${brief.evidence ? `<p class="prose">${escapeHtml(brief.evidence)}</p>` : ""}
-            ${brief.vt ? `<p class="status-line">VirusTotal: ${escapeHtml(brief.vt)}</p>` : ""}
-            ${wazuh}
-            ${steps ? `<ol>${steps}</ol>` : ""}
-          </div>`;
-
-        $("detail").className = "detail";
-        $("detail").innerHTML = `
-          <h2 class="detail-title">#${c.id} · ${escapeHtml(c.title || "(untitled)")}</h2>
-          <div style="margin-bottom:0.75rem">
-            ${badge(statusClass(c.status), c.status)}
-            ${badge(sevClass(c.severity), c.severity)}
-            ${c.disposition ? badge(dispClass(c.disposition), c.disposition) : ""}
-            ${c.analyst_disposition ? badge(dispClass(c.analyst_disposition), "analyst:" + c.analyst_disposition) : ""}
-          </div>
-          ${actNow}
-          ${decisionBlock}
-          ${relatedBlock}
-          ${investigationBlock}
-          ${containmentBlock}
+        const ruleLabel = (rule.id || c.rule_id || "—") + (rule.level != null ? " · level " + rule.level : "");
+        const evidenceBits = [];
+        if (brief.evidence) evidenceBits.push(`<div class="prose">${escapeHtml(brief.evidence)}</div>`);
+        if (brief.vt) evidenceBits.push(`<p class="status-line">VirusTotal: ${escapeHtml(brief.vt)}</p>`);
+        const evidenceBlock = evidenceBits.length
+          ? `<div class="section"><h3>Evidence</h3>${evidenceBits.join("")}</div>`
+          : "";
+        const activityBlock = activityTimeline(c.notes || []);
+        const enrichBlock = `
           <div class="section">
             <h3>Enrich IOC</h3>
             <div class="enrich-row">
@@ -1367,17 +1603,47 @@
               <button type="button" id="btn-enrich">Enrich</button>
             </div>
             <pre class="prose" id="enrich-out" style="margin-top:0.5rem; display:none"></pre>
-          </div>
+          </div>`;
+        const debugBlock = `
           <details class="raw-alert">
             <summary>Debug summary</summary>
             <div class="prose">${escapeHtml(c.summary || "(none)")}</div>
             <p class="status-line">Recommended: ${escapeHtml(c.recommended_action || "(none)")}</p>
+          </details>`;
+        const actNow = `
+          <div class="act-now">
+            <div>
+              <span class="status-line">#${escapeHtml(String(c.id))}</span>
+              ${badge(sevClass(c.severity), c.severity)}
+              ${badge(statusClass(c.status), c.status)}
+            </div>
+            <h3 class="decision-headline">${escapeHtml(brief.headline || c.title || "(untitled)")}</h3>
+            <dl class="facts">
+              <div><dt>Source</dt><dd>${escapeHtml(actors.source_ip || c.source_ip || "—")}</dd></div>
+              <div><dt>User</dt><dd>${escapeHtml(actors.user || "—")}</dd></div>
+              <div><dt>Host</dt><dd>${escapeHtml(actors.agent || c.agent_name || "—")}</dd></div>
+              <div><dt>Rule</dt><dd>${escapeHtml(ruleLabel)}</dd></div>
+            </dl>
+            ${brief.why && brief.why.length ? `<p class="why-line">${escapeHtml(brief.why.join("; "))}</p>` : ""}
+            ${steps ? `<ol>${steps}</ol>` : ""}
+            ${wazuh}
+            ${decisionBlock}
+          </div>`;
+
+        $("detail").className = "detail";
+        $("detail").innerHTML = `
+          ${actNow}
+          <details class="more-panel">
+            <summary>More</summary>
+            ${evidenceBlock}
+            ${relatedBlock}
+            ${investigationBlock}
+            ${containmentBlock}
+            ${activityBlock}
+            ${enrichBlock}
+            ${debugBlock}
+            ${alertBlock}
           </details>
-          ${alertBlock}
-          <div class="section">
-            <h3>Notes</h3>
-            ${notesHtml}
-          </div>
         `;
 
         $("detail").querySelectorAll("[data-disposition]").forEach((btn) => {
@@ -1387,7 +1653,8 @@
         const execBtn = $("btn-exec-containment");
         if (planBtn) planBtn.onclick = () => recordContainmentPlan(caseId);
         if (execBtn) execBtn.onclick = () => executeContainment(caseId, c.source_ip);
-        $("btn-enrich").onclick = () => enrichIoc();
+        const enrichBtn = $("btn-enrich");
+        if (enrichBtn) enrichBtn.onclick = () => enrichIoc();
         $("detail").querySelectorAll("[data-related-id]").forEach((btn) => {
           btn.addEventListener("click", () => {
             selectedId = Number(btn.dataset.relatedId);
@@ -1515,7 +1782,186 @@
     $("btn-bulk-apply").addEventListener("click", () => bulkDecide());
     $("btn-add-supp").addEventListener("click", () => addSuppression());
 
-    loadConfig().then(() => {
+    const TOKEN_KEY = "agentic-soc-setup-token";
+
+    function setupToken() {
+      return sessionStorage.getItem(TOKEN_KEY) || "";
+    }
+
+    function rememberToken(value) {
+      const token = (value || "").trim();
+      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+      const wizard = $("wizard-token");
+      const page = $("connectors-token");
+      if (wizard && document.activeElement !== wizard) wizard.value = token;
+      if (page && document.activeElement !== page) page.value = token;
+    }
+
+    function tokenHeaders() {
+      return {
+        "Content-Type": "application/json",
+        "X-Setup-Token": setupToken(),
+      };
+    }
+
+    function fieldValue(field) {
+      if (field.kind === "bool") return !!field.value;
+      if (field.secret) return "";
+      return field.value || "";
+    }
+
+    function renderConnectorForm(card, prefix) {
+      const fields = (card.fields || []).map((field) => {
+        const id = prefix + "-" + card.id + "-" + field.key;
+        if (field.kind === "bool") {
+          return `<div class="check"><input type="checkbox" id="${id}" data-key="${field.key}" ${field.value ? "checked" : ""} /><label for="${id}">${escapeHtml(field.label)}</label></div>`;
+        }
+        const inputType = field.secret ? "password" : "text";
+        const placeholder = field.secret && field.configured ? escapeHtml(field.hint || "saved") : "";
+        return `<div class="field"><label for="${id}">${escapeHtml(field.label)}</label><input id="${id}" data-key="${field.key}" type="${inputType}" value="${escapeHtml(fieldValue(field))}" placeholder="${placeholder}" autocomplete="off" /></div>`;
+      }).join("");
+      const status = card.enabled ? "enabled" : "off";
+      return `<form class="conn-card" data-connector="${card.id}" data-prefix="${prefix}">
+        <div class="conn-head">
+          <h3>${escapeHtml(card.name)}</h3>
+          <span class="status-line">${escapeHtml(card.kind)} · ${status}</span>
+        </div>
+        <p class="hint">${escapeHtml(card.blurb || "")}</p>
+        <div class="check"><input type="checkbox" class="conn-enabled" ${card.enabled ? "checked" : ""} id="${prefix}-en-${card.id}" /><label for="${prefix}-en-${card.id}">Enabled</label></div>
+        ${fields}
+        <div class="row-actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" class="ghost conn-test">Test</button>
+        </div>
+      </form>`;
+    }
+
+    function readConnectorForm(form) {
+      const config = {};
+      form.querySelectorAll("[data-key]").forEach((input) => {
+        if (input.type === "checkbox") config[input.dataset.key] = input.checked;
+        else config[input.dataset.key] = input.value;
+      });
+      const enabled = form.querySelector(".conn-enabled");
+      return { enabled: !!(enabled && enabled.checked), config };
+    }
+
+    async function saveConnector(form) {
+      const body = readConnectorForm(form);
+      const id = form.dataset.connector;
+      await api("/tools/connectors/" + encodeURIComponent(id), {
+        method: "PUT",
+        headers: tokenHeaders(),
+        body: JSON.stringify(body),
+      });
+      toast("Saved " + id);
+    }
+
+    async function testConnector(form) {
+      const body = readConnectorForm(form);
+      const id = form.dataset.connector;
+      const result = await api("/tools/connectors/" + encodeURIComponent(id) + "/test", {
+        method: "POST",
+        headers: tokenHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (result.ok) toast(result.message || "Connection ok");
+      else toast(result.error || "Connection failed", "error");
+    }
+
+    function bindConnectorForms(root) {
+      root.querySelectorAll("form.conn-card").forEach((form) => {
+        form.addEventListener("submit", (ev) => {
+          ev.preventDefault();
+          saveConnector(form).then(() => refreshConnectors()).catch((err) => toast(err.message, "error"));
+        });
+        const test = form.querySelector(".conn-test");
+        if (test) {
+          test.addEventListener("click", () => {
+            testConnector(form).catch((err) => toast(err.message, "error"));
+          });
+        }
+      });
+    }
+
+    let connectorCards = [];
+
+    async function refreshConnectors() {
+      const data = await api("/tools/connectors");
+      connectorCards = data.connectors || [];
+      const page = $("connectors-forms");
+      const wizard = $("wizard-forms");
+      if (page) {
+        page.innerHTML = connectorCards.map((card) => renderConnectorForm(card, "page")).join("");
+        bindConnectorForms(page);
+      }
+      if (wizard) {
+        wizard.innerHTML = connectorCards.map((card) => renderConnectorForm(card, "wiz")).join("");
+        bindConnectorForms(wizard);
+      }
+      const wazuh = connectorCards.find((card) => card.id === "wazuh");
+      const open = $("wizard-open");
+      if (open) open.disabled = !(wazuh && wazuh.enabled && wazuh.configured);
+      return data;
+    }
+
+    function showWizard() {
+      $("setup-wizard").hidden = false;
+      $("connectors-panel").hidden = true;
+    }
+
+    function hideWizard() {
+      $("setup-wizard").hidden = true;
+    }
+
+    $("nav-connectors").addEventListener("click", (ev) => {
+      ev.preventDefault();
+      $("connectors-panel").hidden = false;
+      refreshConnectors().catch((err) => toast(err.message, "error"));
+    });
+    $("connectors-close").addEventListener("click", () => {
+      $("connectors-panel").hidden = true;
+    });
+    $("wizard-token").addEventListener("change", (ev) => rememberToken(ev.target.value));
+    $("connectors-token").addEventListener("change", (ev) => rememberToken(ev.target.value));
+    $("wizard-save").addEventListener("click", async () => {
+      rememberToken($("wizard-token").value);
+      const forms = $("wizard-forms").querySelectorAll("form.conn-card");
+      try {
+        for (const form of forms) {
+          if (form.dataset.connector === "wazuh") {
+            const box = form.querySelector(".conn-enabled");
+            if (box) box.checked = true;
+          } else if (!readConnectorForm(form).enabled) {
+            continue;
+          }
+          await saveConnector(form);
+        }
+        await refreshConnectors();
+        const setup = await api("/tools/setup");
+        if (setup.ready) $("wizard-open").disabled = false;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+    $("wizard-open").addEventListener("click", () => {
+      hideWizard();
+      loadCases();
+      loadMetrics();
+      loadSituation();
+      loadSuppressions();
+    });
+
+    rememberToken(setupToken());
+
+    loadConfig().then(async () => {
+      try {
+        const setup = await api("/tools/setup");
+        await refreshConnectors();
+        if (!setup.ready) showWizard();
+      } catch (err) {
+        toast("Setup check failed: " + err.message, "error");
+      }
       loadCases();
       loadMetrics();
       loadSituation();

@@ -62,6 +62,45 @@ def test_pam_user_and_rhost() -> None:
     assert extract_user(alert) == "admin"
 
 
+def test_windows_logon_failure_uses_eventdata() -> None:
+    """60122 alerts have an empty full_log; the actor is in win.eventdata."""
+    alert = _alert(
+        rule_id="60122",
+        description="Logon Failure - Unknown user or bad password",
+        full_log="",
+        groups=["windows", "windows_security", "authentication_failures"],
+        data={
+            "win": {
+                "eventdata": {
+                    "ipAddress": "172.16.101.23",
+                    "targetUserName": "guest",
+                    "logonType": "3",
+                }
+            }
+        },
+    )
+    assert extract_source_ip(alert) == "172.16.101.23"
+    assert extract_user(alert) == "guest"
+
+
+def test_windows_eventdata_ignores_loopback_and_machine_account() -> None:
+    alert = _alert(
+        rule_id="60106",
+        description="Windows Logon Success",
+        full_log="",
+        data={
+            "win": {
+                "eventdata": {
+                    "ipAddress": "::1",
+                    "targetUserName": "HYDRA-DC$",
+                }
+            }
+        },
+    )
+    assert extract_source_ip(alert) is None
+    assert extract_user(alert) is None
+
+
 def test_ufw_src_kept_even_if_private() -> None:
     alert = _alert(
         rule_id="100100",

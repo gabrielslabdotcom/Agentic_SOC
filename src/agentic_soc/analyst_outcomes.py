@@ -38,7 +38,7 @@ OUTCOME_META: dict[str, dict[str, Any]] = {
         "skip_repeats": True,
         "description": (
             "The event is real and the rule fired correctly, but activity is "
-            "authorized or expected (lab nmap, known hydra replay, admin typo)."
+            "authorized or expected (lab nmap, known hydra replay, MARVEL.local AD lab replay, admin typo)."
         ),
     },
     INFORMATIONAL: {

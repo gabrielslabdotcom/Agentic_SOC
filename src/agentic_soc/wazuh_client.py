@@ -28,8 +28,11 @@ def build_alerts_search_body(
     """
     must: list[dict[str, Any]] = []
     must_not: list[dict[str, Any]] = []
-    if agent_name:
-        must.append({"match": {"agent.name": agent_name}})
+    names = [n.strip() for n in (agent_name or "").split(",") if n.strip()]
+    if len(names) == 1:
+        must.append({"match": {"agent.name": names[0]}})
+    elif len(names) > 1:
+        must.append({"terms": {"agent.name": names}})
     if query_string:
         must.append({"query_string": {"query": query_string}})
     since_ts = (since or "").strip()
