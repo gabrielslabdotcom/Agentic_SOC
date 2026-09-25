@@ -2,6 +2,7 @@
 
 reader < investigator < analyst. Unknown roles are treated as reader.
 Execute still also requires CONTAINMENT_ENABLED inside containment.py.
+Host isolation execute also requires HOST_ISOLATION_ENABLED inside isolation.py.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ _INVESTIGATOR_ACTIONS = frozenset(
         "link_case_to_entity",
         "correlate_alert",
         "record_containment_plan",
+        "record_isolation_plan",
     }
 )
 
@@ -37,6 +39,7 @@ _ANALYST_ACTIONS = frozenset(
         "add_suppression",
         "disable_suppression",
         "execute_containment",
+        "execute_isolation",
     }
 )
 

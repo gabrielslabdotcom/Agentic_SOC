@@ -811,7 +811,9 @@
           specific IP) before Discord / Cursor. Live autonomy on Pop uses min-level 8; sshd/PAM auth failures at level 5
           are OR'd in without lowering that floor. Informational / false-positive
           cases may auto-close without Discord. UFW deny is a dry-run plan unless
-          CONTAINMENT_ENABLED is on (still a separate HITL click). Containment stays off by default.
+          CONTAINMENT_ENABLED is on (still a separate HITL click). Host isolation is a
+          separate dry-run plan unless HOST_ISOLATION_ENABLED is on (another HITL click,
+          never automatic). Outcomes never isolate a host. Containment stays off by default.
         </p>
       </details>
     </div>
@@ -1390,6 +1392,19 @@
       return t.indexOf("[containment_plan]") === 0 || t.indexOf("[containment_execute]") === 0;
     }
 
+    function isIsolationNote(n) {
+      const t = n.note || "";
+      return t.indexOf("[isolation_plan]") === 0 || t.indexOf("[isolation_execute]") === 0;
+    }
+
+    function isolationStatusLine(state) {
+      if (!state || !state.action) return "No isolation sent from this app.";
+      const when = state.updated_at ? " " + state.updated_at : "";
+      if (state.action === "isolate") return "Last sent: isolated" + when;
+      if (state.action === "deisolate") return "Last sent: deisolated" + when;
+      return "No isolation sent from this app.";
+    }
+
     function timelineLabel(n) {
       const t = (n.note || "").trim();
       const a = (n.author || "").toLowerCase();
@@ -1404,7 +1419,7 @@
     function activityTimeline(notes) {
       const items = [];
       (notes || []).forEach((n) => {
-        if (isInvestigationNote(n) || isContainmentNote(n)) return;
+        if (isInvestigationNote(n) || isContainmentNote(n) || isIsolationNote(n)) return;
         const text = n.note || "";
         const when = escapeHtml(n.created_at || "");
         const who = escapeHtml(n.author || "?");
@@ -1509,6 +1524,7 @@
           const t = n.note || "";
           return t.indexOf("[containment_plan]") === 0 || t.indexOf("[containment_execute]") === 0;
         });
+        const isolationNotes = notes.filter((n) => isIsolationNote(n));
         let investigationBlock;
         if (invNotes.length) {
           investigationBlock = `
@@ -1552,6 +1568,37 @@
                 Approve / outcomes never run UFW. A deny-from-source plan can be recorded here.
                 Execute stays off unless <code>CONTAINMENT_ENABLED=true</code> on this host
                 (still a separate click, never automatic). Protected: Pop host 192.168.50.254.
+              </p>
+            </details>
+          </div>`;
+        const canIsolate = !!(uiConfig && uiConfig.host_isolation_enabled);
+        const agentName = c.agent_name || "";
+        const isolationBlock = `
+          <div class="section containment-panel">
+            <h3>Host isolation</h3>
+            <p class="status-line">Cuts off the monitored endpoint via Wazuh Active Response. This is not the Pop UFW deny.</p>
+            ${agentName ? `<p class="status-line">Agent: <code>${escapeHtml(agentName)}</code></p>` : `<p class="status-line">No agent name on this case — cannot plan isolation.</p>`}
+            <p class="status-line">${escapeHtml(isolationStatusLine(c.isolation_state))}</p>
+            ${isolationNotes.length ? isolationNotes.map((n) => `
+              <div class="who">${escapeHtml(n.author || "?")} · ${escapeHtml(n.created_at || "")}</div>
+              <div class="prose">${escapeHtml(n.note || "")}</div>
+            `).join("") : ""}
+            <div class="actions">
+              <button type="button" class="ghost" id="btn-plan-isolation" ${agentName ? "" : "disabled"}>Record isolation plan</button>
+              <button type="button" class="danger" id="btn-exec-isolation" ${agentName && canIsolate ? "" : "disabled"}>
+                ${canIsolate ? "Isolate host" : "Isolate disabled (dry-run)"}
+              </button>
+              <button type="button" class="ghost" id="btn-exec-deisolation" ${agentName && canIsolate ? "" : "disabled"}>
+                ${canIsolate ? "De-isolate host" : "De-isolate disabled"}
+              </button>
+            </div>
+            <details>
+              <summary>Isolation policy</summary>
+              <p class="status-line">
+                Approve / outcomes never isolate a host. A plan can be recorded here.
+                Execute stays off unless <code>HOST_ISOLATION_ENABLED=true</code>
+                (still a separate click, never automatic). The SIEM agent cannot be isolated.
+                Scripts must already be installed on the endpoint.
               </p>
             </details>
           </div>`;
@@ -1639,6 +1686,7 @@
             ${relatedBlock}
             ${investigationBlock}
             ${containmentBlock}
+            ${isolationBlock}
             ${activityBlock}
             ${enrichBlock}
             ${debugBlock}
@@ -1653,6 +1701,12 @@
         const execBtn = $("btn-exec-containment");
         if (planBtn) planBtn.onclick = () => recordContainmentPlan(caseId);
         if (execBtn) execBtn.onclick = () => executeContainment(caseId, c.source_ip);
+        const isoPlanBtn = $("btn-plan-isolation");
+        const isoExecBtn = $("btn-exec-isolation");
+        const isoUndoBtn = $("btn-exec-deisolation");
+        if (isoPlanBtn) isoPlanBtn.onclick = () => recordIsolationPlan(caseId);
+        if (isoExecBtn) isoExecBtn.onclick = () => executeIsolation(caseId, c.agent_name, "isolate");
+        if (isoUndoBtn) isoUndoBtn.onclick = () => executeIsolation(caseId, c.agent_name, "deisolate");
         const enrichBtn = $("btn-enrich");
         if (enrichBtn) enrichBtn.onclick = () => enrichIoc();
         $("detail").querySelectorAll("[data-related-id]").forEach((btn) => {
@@ -1711,6 +1765,60 @@
         });
         if (result.executed) {
           toast("UFW deny inserted for " + (result.source_ip || sourceIp) + ".", "ok");
+        } else {
+          toast("Not executed: " + (result.reason || result.error || "unknown"), "error");
+        }
+        await loadCaseDetail(caseId, false);
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    async function recordIsolationPlan(caseId) {
+      try {
+        const plan = await api(
+          "/tools/isolation_plan?case_id=" + encodeURIComponent(caseId) + "&record=true",
+        );
+        toast(
+          plan.allowed
+            ? "Recorded isolation plan (dry-run, not executed)."
+            : ("Plan not allowed: " + (plan.reason || "unknown")),
+          plan.allowed ? "ok" : "error",
+        );
+        await loadCaseDetail(caseId, false);
+      } catch (e) {
+        toast(e.message, "error");
+      }
+    }
+
+    async function executeIsolation(caseId, agentName, action) {
+      if (!(uiConfig && uiConfig.host_isolation_enabled)) {
+        toast("HOST_ISOLATION_ENABLED is off. Record a dry-run plan instead.", "error");
+        return;
+      }
+      const verb = action === "deisolate" ? "De-isolate" : "Isolate";
+      const detail = action === "deisolate"
+        ? "restore network access on"
+        : "drop most network traffic on";
+      const ok = window.confirm(
+        verb + " host " + (agentName || "this agent") + "? This will " + detail +
+            " that endpoint via Wazuh Active Response. Analyst outcomes will not do this.",
+      );
+      if (!ok) return;
+      try {
+        const result = await api("/tools/execute_isolation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            case_id: caseId,
+            confirm: true,
+            action: action,
+            agent_name: agentName || null,
+            author: "dashboard",
+          }),
+        });
+        if (result.executed) {
+          toast(verb + " sent for " + (result.agent_name || agentName) + ".", "ok");
         } else {
           toast("Not executed: " + (result.reason || result.error || "unknown"), "error");
         }

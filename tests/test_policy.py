@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -27,7 +28,10 @@ def test_role_ladder() -> None:
     assert allow("nope", "open_case") is False
 
 
-def test_reader_cannot_open_investigator_cannot_approve_or_execute(tmp_path: Path) -> None:
+def test_reader_cannot_open_investigator_cannot_approve_or_execute(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("HOST_ISOLATION_ENABLED", raising=False)
     settings = _settings(tmp_path)
     reader = SocTools(settings=settings, role=READER)
     denied_open = reader.open_case(title="nope", alert_id="r1")
@@ -62,6 +66,11 @@ def test_reader_cannot_open_investigator_cannot_approve_or_execute(tmp_path: Pat
     assert exe["action"] == "execute_containment"
     assert exe.get("executed") is not True
 
+    iso = asyncio.run(investigator.execute_isolation(opened["id"], confirm=True))
+    assert iso["error"] == "policy_denied"
+    assert iso["action"] == "execute_isolation"
+    assert iso.get("executed") is not True
+
     analyst = SocTools(settings=settings, role=ANALYST)
     closed = analyst.resolve_proposal(opened["id"], disposition="benign", author="pytest")
     assert closed.get("error") != "policy_denied"
@@ -71,6 +80,26 @@ def test_reader_cannot_open_investigator_cannot_approve_or_execute(tmp_path: Pat
     assert blocked.get("error") != "policy_denied"
     assert blocked["executed"] is False
     assert blocked["reason"] == "containment_disabled"
+
+    async def _resolve(name: str) -> dict:
+        return {
+            "ok": True,
+            "agent": {
+                "id": "009",
+                "name": name,
+                "status": "active",
+                "os": "Ubuntu",
+                "platform": "ubuntu",
+                "ip": "203.0.113.9",
+            },
+        }
+
+    analyst.wazuh.resolve_agent_by_name = _resolve  # type: ignore[method-assign]
+    host = analyst.open_case(title="endpoint", alert_id="iso-policy", agent_name="lab-linux")
+    iso_blocked = asyncio.run(analyst.execute_isolation(host["id"], confirm=True, author="pytest"))
+    assert iso_blocked.get("error") != "policy_denied"
+    assert iso_blocked["executed"] is False
+    assert iso_blocked["reason"] == "isolation_disabled"
 
 
 def test_api_investigator_approve_is_forbidden(tmp_path: Path, monkeypatch) -> None:

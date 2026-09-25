@@ -11,6 +11,12 @@ from agentic_soc.containment import (
     plan_block_source_ip,
     plan_note,
 )
+from agentic_soc.isolation import (
+    execute_host_isolation,
+    plan_host_isolation,
+    plan_note as isolation_note,
+    protected_agents,
+)
 from agentic_soc.enrichment import VirusTotalClient
 from agentic_soc.policy import INVESTIGATOR, allow, denial, normalize_role
 from agentic_soc.triage import extract_iocs, extract_source_ip, extract_user
@@ -114,7 +120,12 @@ class SocTools:
         )
 
     def get_case(self, case_id: int) -> dict[str, Any]:
-        return self.cases.get_case(case_id)
+        case = self.cases.get_case(case_id)
+        if case.get("error"):
+            return case
+        name = self._agent_name_from_case(case)
+        case["isolation_state"] = self.cases.isolation_state(name) if name else None
+        return case
 
     def list_cases(self, status: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
         return self.cases.list_cases(status=status, limit=limit)
@@ -367,6 +378,130 @@ class SocTools:
         result = execute_block_source_ip(ip, case_id=case_id, confirm=confirm)
         audit = plan_note(result).replace("[containment_plan]", "[containment_execute]", 1)
         self.cases.update_case(case_id, note=audit, author=author)
+        return result
+
+    def _agent_name_from_case(self, case: dict[str, Any]) -> Optional[str]:
+        name = str(case.get("agent_name") or "").strip()
+        if name:
+            return name
+        brief = case.get("brief")
+        if isinstance(brief, dict):
+            actors = brief.get("actors") if isinstance(brief.get("actors"), dict) else {}
+            found = str((actors or {}).get("agent") or "").strip()
+            return found or None
+        return None
+
+    async def _lookup_isolation_agent(
+        self, agent_name: str
+    ) -> tuple[Optional[dict[str, Any]], Optional[str], Optional[str]]:
+        """Return (agent, lookup_error, lookup_detail). Protected names skip Wazuh."""
+        if agent_name.lower() in protected_agents():
+            return None, None, None
+        try:
+            found = await self.wazuh.resolve_agent_by_name(agent_name)
+        except Exception as exc:
+            return None, "lookup_failed", str(exc)
+        if not found.get("ok"):
+            return None, str(found.get("error") or "agent_not_found"), None
+        agent = found.get("agent")
+        return (agent if isinstance(agent, dict) else None), None, None
+
+    async def plan_isolation(
+        self,
+        *,
+        case_id: Optional[int] = None,
+        agent_name: Optional[str] = None,
+        record: bool = False,
+        action: str = "isolate",
+    ) -> dict[str, Any]:
+        """Dry-run host isolation plan. Optional record on the case. Never executes."""
+        if record:
+            denied = self._guard("record_isolation_plan")
+            if denied:
+                return denied
+        name = (agent_name or "").strip() or None
+        if case_id is not None and not name:
+            case = self.cases.get_case(case_id)
+            if case.get("error"):
+                return case
+            name = self._agent_name_from_case(case)
+        lookup_error = None
+        lookup_detail = None
+        agent = None
+        if name and name.lower() not in protected_agents():
+            agent, lookup_error, lookup_detail = await self._lookup_isolation_agent(name)
+        plan = plan_host_isolation(
+            name,
+            case_id=case_id,
+            action=action,
+            agent=agent,
+            lookup_error=lookup_error,
+            lookup_detail=lookup_detail,
+        )
+        if record and case_id is not None:
+            self.cases.update_case(
+                case_id,
+                note=isolation_note(plan),
+                author="isolation_plan",
+            )
+            plan["recorded"] = True
+        return plan
+
+    async def execute_isolation(
+        self,
+        case_id: Optional[int] = None,
+        *,
+        action: str = "isolate",
+        confirm: bool = False,
+        agent_name: Optional[str] = None,
+        author: str = "human",
+    ) -> dict[str, Any]:
+        """HITL isolate or de-isolate. Off unless HOST_ISOLATION_ENABLED."""
+        denied = self._guard("execute_isolation")
+        if denied:
+            return denied
+        if action not in ("isolate", "deisolate"):
+            return {
+                "ok": False,
+                "allowed": False,
+                "executed": False,
+                "action": action,
+                "reason": "invalid_action",
+            }
+        name = (agent_name or "").strip() or None
+        if case_id is not None:
+            case = self.cases.get_case(case_id)
+            if case.get("error"):
+                return case
+            if not name:
+                name = self._agent_name_from_case(case)
+        elif not name:
+            name = None
+        if not name:
+            plan = plan_host_isolation(None, case_id=case_id, action=action)
+        else:
+            agent, lookup_error, lookup_detail = await self._lookup_isolation_agent(name)
+            plan = plan_host_isolation(
+                name,
+                case_id=case_id,
+                action=action,
+                agent=agent,
+                lookup_error=lookup_error,
+                lookup_detail=lookup_detail,
+            )
+        result = await execute_host_isolation(self.wazuh, plan, confirm=confirm)
+        if result.get("executed") and name:
+            stored_action = "deisolate" if result.get("action") == "deisolate_host" else "isolate"
+            self.cases.record_isolation_state(
+                agent_name=name,
+                action=stored_action,
+                command=result.get("command"),
+                wazuh_agent_id=result.get("wazuh_agent_id"),
+                case_id=case_id,
+            )
+        if case_id is not None:
+            audit = isolation_note(result, tag="isolation_execute")
+            self.cases.update_case(case_id, note=audit, author=author)
         return result
 
     async def enrich_ioc(

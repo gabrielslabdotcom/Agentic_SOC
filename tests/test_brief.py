@@ -131,6 +131,37 @@ def test_brief_has_three_steps_and_no_execute() -> None:
     assert len(brief["evidence"]) <= 200
 
 
+def test_suspicious_agent_brief_names_host_isolation() -> None:
+    alert = _alert(agent="Win10-SOC", full_log="suspicious process")
+    brief = build_analyst_brief(
+        alert,
+        {
+            "disposition": "suspicious",
+            "reasons": ["lab"],
+            "recommended_action": "investigate_and_document",
+        },
+    )
+    assert len(brief["do_next"]) == 3
+    joined = " ".join(brief["do_next"]).lower()
+    assert "host isolation for win10-soc" in joined
+    assert "do not execute" in joined
+
+
+def test_brief_without_agent_omits_host_isolation() -> None:
+    alert = _alert(agent=" ", full_log="suspicious process")
+    brief = build_analyst_brief(
+        alert,
+        {
+            "disposition": "true_positive",
+            "reasons": ["lab"],
+            "recommended_action": "investigate_and_document",
+        },
+    )
+    joined = " ".join(brief["do_next"]).lower()
+    assert "host isolation" not in joined
+    assert len(brief["do_next"]) == 3
+
+
 def test_missing_actors_still_brief() -> None:
     alert = _alert(full_log="authentication failure")
     brief = build_analyst_brief(alert, score_alert(alert))

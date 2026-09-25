@@ -104,6 +104,7 @@ class CaseStore:
             self._ensure_feedback_schema(conn)
             self._ensure_suppressions_schema(conn)
             self._ensure_incident_schema(conn)
+            self._ensure_isolation_state_schema(conn)
 
     @staticmethod
     def _ensure_unique_alert_id(conn: sqlite3.Connection) -> None:
@@ -391,6 +392,72 @@ class CaseStore:
                     (case_id, author, note, self._now()),
                 )
         return self.get_case(case_id)
+
+    @staticmethod
+    def _ensure_isolation_state_schema(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS host_isolation_state (
+                agent_name TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                command TEXT,
+                wazuh_agent_id TEXT,
+                case_id INTEGER,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+    def record_isolation_state(
+        self,
+        *,
+        agent_name: str,
+        action: str,
+        command: Optional[str] = None,
+        wazuh_agent_id: Optional[str] = None,
+        case_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Remember the last isolate or de-isolate this app successfully sent."""
+        name = (agent_name or "").strip()
+        act = (action or "").strip().lower()
+        if act == "isolate_host":
+            act = "isolate"
+        elif act == "deisolate_host":
+            act = "deisolate"
+        if not name or act not in ("isolate", "deisolate"):
+            return {"ok": False, "error": "invalid_isolation_state"}
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO host_isolation_state (
+                    agent_name, action, command, wazuh_agent_id, case_id, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(agent_name) DO UPDATE SET
+                    action = excluded.action,
+                    command = excluded.command,
+                    wazuh_agent_id = excluded.wazuh_agent_id,
+                    case_id = excluded.case_id,
+                    updated_at = excluded.updated_at
+                """,
+                (name, act, command, wazuh_agent_id, case_id, now),
+            )
+        return self.isolation_state(name) or {"ok": False, "error": "isolation_state_missing"}
+
+    def isolation_state(self, agent_name: Optional[str]) -> Optional[dict[str, Any]]:
+        name = (agent_name or "").strip()
+        if not name:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT agent_name, action, command, wazuh_agent_id, case_id, updated_at
+                FROM host_isolation_state
+                WHERE agent_name = ?
+                """,
+                (name,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def get_case(self, case_id: int) -> dict[str, Any]:
         with self._connect() as conn:

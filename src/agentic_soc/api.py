@@ -143,6 +143,22 @@ class ExecuteContainmentBody(BaseModel):
     author: str = "dashboard"
 
 
+class ExecuteIsolationBody(BaseModel):
+    case_id: Optional[int] = None
+    confirm: bool = False
+    action: str = "isolate"
+    agent_name: Optional[str] = None
+    author: str = "dashboard"
+
+    @model_validator(mode="after")
+    def _need_target(self) -> ExecuteIsolationBody:
+        if self.case_id is None and not (self.agent_name or "").strip():
+            raise ValueError("case_id or agent_name required")
+        if self.action not in ("isolate", "deisolate"):
+            raise ValueError("action must be isolate or deisolate")
+        return self
+
+
 class AddSuppressionBody(BaseModel):
     rule_id: str
     disposition: str = "informational"
@@ -192,7 +208,9 @@ def ui_config() -> dict[str, Any]:
             "rule_id+source IP skips repeats. Confirmed compromise does not skip. "
             "Informational/FP cases may auto-close without Discord "
             "(AUTONOMY_AUTO_CLOSE_NOISE). UFW deny is a dry-run plan unless "
-            "CONTAINMENT_ENABLED=true (still HITL, never auto)."
+            "CONTAINMENT_ENABLED=true (still HITL, never auto). Host isolation is a "
+            "separate dry-run plan unless HOST_ISOLATION_ENABLED=true (still HITL, "
+            "never auto). The SIEM agent cannot be isolated."
         )
         banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
     else:
@@ -210,6 +228,8 @@ def ui_config() -> dict[str, Any]:
         "cases_db_path": str(settings.cases_path),
         "lab_mode": True,
         "containment_enabled": os.environ.get("CONTAINMENT_ENABLED", "false").lower()
+        in ("1", "true", "yes"),
+        "host_isolation_enabled": os.environ.get("HOST_ISOLATION_ENABLED", "false").lower()
         in ("1", "true", "yes"),
         "autonomy_min_level": min_level,
         "include_auth": os.environ.get("AUTONOMY_INCLUDE_AUTH", "true"),
@@ -440,6 +460,45 @@ def execute_containment(body: ExecuteContainmentBody) -> dict[str, Any]:
             body.case_id,
             confirm=body.confirm,
             source_ip=body.source_ip,
+            author=body.author,
+        )
+    )
+    if result.get("error") and result.get("id"):
+        raise HTTPException(status_code=404, detail=result)
+    return result
+
+
+@app.get("/tools/isolation_plan")
+async def isolation_plan(
+    case_id: Optional[int] = Query(None),
+    agent_name: Optional[str] = Query(None),
+    action: str = Query("isolate"),
+    record: bool = Query(False),
+) -> dict[str, Any]:
+    """Dry-run host isolation plan. Never executes."""
+    if action not in ("isolate", "deisolate"):
+        raise HTTPException(status_code=400, detail={"error": "invalid_action"})
+    if case_id is None and not (agent_name or "").strip():
+        raise HTTPException(status_code=400, detail={"error": "case_id or agent_name required"})
+    return _release(
+        await get_tools().plan_isolation(
+            case_id=case_id,
+            agent_name=agent_name,
+            record=record,
+            action=action,
+        )
+    )
+
+
+@app.post("/tools/execute_isolation")
+async def execute_isolation(body: ExecuteIsolationBody) -> dict[str, Any]:
+    """HITL host isolate or de-isolate. No-op unless HOST_ISOLATION_ENABLED and confirm."""
+    result = _release(
+        await get_tools().execute_isolation(
+            body.case_id,
+            action=body.action,
+            confirm=body.confirm,
+            agent_name=body.agent_name,
             author=body.author,
         )
     )

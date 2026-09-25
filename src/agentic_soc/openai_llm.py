@@ -85,12 +85,12 @@ async def draft_meaning_note(settings: Settings, packet: dict[str, Any]) -> dict
             "role": "user",
             "content": (
                 "You are an Agentic SOC investigation assistant.\n"
-                "Propose only. Never execute containment.\n"
+                "Propose only. Never execute containment or host isolation.\n"
                 "Use only the packet below.\n\n"
                 f"Incident packet:\n{packet_text}\n\n"
                 f"Write the note for incident #{case_id} with these headings:\n"
                 "What it means\nEvidence\nRelated cases\nNext steps\n"
-                "State that containment stays manual."
+                "State that containment and host isolation stay manual."
             ),
         }
     ]

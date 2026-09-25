@@ -920,6 +920,7 @@ def _do_next(
     user: Optional[str],
     rule_id: str,
     auth: bool,
+    agent: Optional[str] = None,
 ) -> list[str]:
     who_bits = []
     if user:
@@ -942,10 +943,24 @@ def _do_next(
             "Close as Informational or False Positive if this is expected lab noise. "
             "That records status only."
         )
-    if source_ip and disposition in ("suspicious", "true_positive"):
+    host = (agent or "").strip()
+    hot = disposition in ("suspicious", "true_positive")
+    if source_ip and hot:
         third = (
             f"If it repeats, suppress rule {rid} for {source_ip}, "
-            "or record a dry-run UFW plan. Do not execute a deny from this brief."
+            "or record a dry-run UFW plan."
+        )
+        if host:
+            third += (
+                f" Host isolation for {host} is a separate confirmed click on the case."
+            )
+        third += " Do not execute a deny or an isolation from this brief."
+    elif hot and host:
+        third = (
+            f"If it repeats, suppress rule {rid}"
+            + (f" for {source_ip}" if source_ip else " for any source")
+            + f". Host isolation for {host} is a separate confirmed click on the case."
+            " Do not execute an isolation from this brief."
         )
     else:
         third = (
@@ -999,6 +1014,7 @@ def build_analyst_brief(
             user=user,
             rule_id=rid,
             auth=is_auth_failure(alert),
+            agent=agent,
         ),
         "wazuh_url": base or None,
         "disposition": disposition or None,
@@ -1033,6 +1049,7 @@ def fallback_brief_from_case(case: dict[str, Any]) -> dict[str, Any]:
             user=None,
             rule_id=rid,
             auth="authentication" in headline.lower() or rid == "2501",
+            agent=agent,
         ),
         "wazuh_url": None,
         "disposition": disposition or None,

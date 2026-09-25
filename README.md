@@ -40,9 +40,9 @@ A same-severity attach does not explain the incident and does not page Discord.
 
 | Role | Who | May |
 | ---- | --- | --- |
-| `reader` | lookup | List and get alerts and cases, enrich, `find_related`, situation, metrics, suppression lookup, dry-run containment plan |
+| `reader` | lookup | List and get alerts and cases, enrich, `find_related`, situation, metrics, suppression lookup, dry-run containment and isolation plans |
 | `investigator` | autonomy, MCP, meaning-note writer | Reader, plus open, update, attach, propose, entity links, noise auto-close |
-| `analyst` | dashboard, [`scripts/approve_case.py`](scripts/approve_case.py) | Investigator, plus close a case, add or disable a suppression, and execute containment only when `CONTAINMENT_ENABLED` is already true |
+| `analyst` | dashboard, [`scripts/approve_case.py`](scripts/approve_case.py) | Investigator, plus close a case, add or disable a suppression, execute containment only when `CONTAINMENT_ENABLED` is already true, and isolate a host only when `HOST_ISOLATION_ENABLED` is already true |
 
 `propose_action` records a proposal and ignores `auto_execute` for every role. A denied call returns `policy_denied`. The API maps that to HTTP 403. MCP does not expose approve or execute. Adding those tools later still fails the check inside `SocTools` for an investigator.
 
@@ -53,15 +53,16 @@ A same-severity attach does not explain the incident and does not page Discord.
 3. On a **new** incident or a **severity rise**, write the meaning note and page Discord. A quiet attach does neither.
 4. Suspicious and true-positive cases stay for a human. Informational and false-positive cases that still pass the open gate may auto-close (`AUTONOMY_AUTO_CLOSE_NOISE`) without paging.
 
-Human outcomes **false positive**, **benign**, **informational**, and **duplicate** on the same `rule_id` and source IP skip repeats for 14 days (`AUTONOMY_FEEDBACK_SKIP`). **Confirmed compromise** does not skip. Outcomes record status and a note. They do not run UFW.
+Human outcomes **false positive**, **benign**, **informational**, and **duplicate** on the same `rule_id` and source IP skip repeats for 14 days (`AUTONOMY_FEEDBACK_SKIP`). **Confirmed compromise** does not skip. Outcomes record status and a note. They do not run UFW or isolate a host.
 
-The containment card is a dry-run plan. Execute runs only when `CONTAINMENT_ENABLED=true` and an analyst confirms. Autonomy never executes it.
+The containment card is a dry-run UFW plan on the SIEM host. Execute runs only when `CONTAINMENT_ENABLED=true` and an analyst confirms. The host-isolation card is a separate dry-run plan that asks the Wazuh manager to run an active-response script on the endpoint. Execute runs only when `HOST_ISOLATION_ENABLED=true` and an analyst confirms. Autonomy never executes either one. The SIEM agent cannot be isolated. MCP does not expose execute.
 
 ## Analyst UI
 
 The dashboard is the FastAPI app in [`src/agentic_soc/api.py`](src/agentic_soc/api.py) plus [`src/agentic_soc/static/index.html`](src/agentic_soc/static/index.html).
 
 - **Act now** — headline, actors, why, evidence, and three next steps from the brief
+- **Host isolation** — on a case that has an agent name: **Record isolation plan**, **Isolate host**, and **De-isolate host**. The panel shows the last isolate or de-isolate this app successfully sent for that agent, or “No isolation sent from this app.” That line is the last successful command, not a live firewall check.
 - **Happening now** — open incidents grouped by source IP or user
 - Queue counts — open, auto-closed, human-closed, suppressions
 - Rule suppressions — add or disable; confirmed compromise cannot create one
@@ -206,7 +207,7 @@ If your Cursor build does not expand `${workspaceFolder}`, substitute the absolu
 
 ## Tool surface
 
-Higher roles include the rows above them. Execute also requires `CONTAINMENT_ENABLED`.
+Higher roles include the rows above them. UFW execute also requires `CONTAINMENT_ENABLED`. Host isolation execute also requires `HOST_ISOLATION_ENABLED`.
 
 | Tool | Role | Purpose |
 | ---- | ---- | ------- |
@@ -215,15 +216,29 @@ Higher roles include the rows above them. Execute also requires `CONTAINMENT_ENA
 | `situation`, `queue_metrics`, `feedback_summary` | reader | Happening now, counts, human outcomes |
 | `list_suppressions`, `match_suppression`, `suppression_suggestions` | reader | Lookup only |
 | `containment_plan` (dry-run) | reader | UFW deny plan, no execution |
+| `isolation_plan` (dry-run) | reader | Host isolation plan, no execution |
 | `open_case`, `update_case`, `attach_alert`, `propose_action` | investigator | Open work and record a proposal |
 | `upsert_entity`, `link_alert_to_entity`, `link_case_to_entity` | investigator | SQLite entities |
 | `approve_case` | analyst | Closing outcome (status + note) |
 | `add_suppression`, `disable_suppression` | analyst | Auto-close a rule before Discord |
 | `execute_containment` | analyst | HITL UFW deny when containment is enabled |
+| `execute_isolation` | analyst | HITL Wazuh active response when host isolation is enabled |
+
+## Host isolation
+
+Perimeter blocking (UFW deny of a source IP) stays on the SIEM host. Host isolation is different: the manager tells the **Wazuh agent on the endpoint** to apply a local firewall policy. That needs the scripts and manager commands in [`deploy/wazuh/active-response/`](deploy/wazuh/active-response/README.md) installed first. Linux and Windows use different command names. Nothing is bound to an alert rule.
+
+`HOST_ISOLATION_ENABLED` defaults to off. Turning it on only unlocks the dashboard **Isolate host** / **De-isolate host** buttons (and [`scripts/isolate_agent.py`](scripts/isolate_agent.py)). Confirmed compromise does not isolate. `pop-os-native` is always refused.
+
+A suspicious or true-positive brief that names an agent points the third next step at the Host isolation panel. The brief still says not to execute a deny or an isolation from the text itself. Briefs already stored on open cases stay as they were.
+
+A successful execute writes `host_isolation_state` in the case database: agent, action, command, Wazuh agent id, case id, and time. De-isolate replaces that row with `deisolate`.
+
+The analyst opens the case and confirms in the browser. [`scripts/isolate_agent.py`](scripts/isolate_agent.py) is the same gate without the UI. Autonomy, Discord, and MCP do not send the command.
 
 ## Out of scope
 
-- Auto-containment or SOAR execution
+- Auto-containment, auto-isolation, or SOAR execution
 - API login or a second identity provider
 - A tunnel from public Cursor cloud into Wazuh or the lab API
 - Neo4j, Security Onion, or Hydra (Hydra breaks `sshd`)

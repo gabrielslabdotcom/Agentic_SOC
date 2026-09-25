@@ -126,25 +126,112 @@ class WazuhClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _api_put(
+        self,
+        path: str,
+        body: dict[str, Any],
+        params: Optional[dict[str, str]] = None,
+    ) -> dict[str, Any]:
+        if not self._token:
+            await self.authenticate()
+        url = f"{self.settings.wazuh_api_url.rstrip('/')}{path}"
+        async with httpx.AsyncClient(verify=self.settings.wazuh_api_verify_ssl, timeout=30) as client:
+            resp = await client.put(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self._token}",
+                    "Content-Type": "application/json",
+                },
+                params=params or {},
+                json=body,
+            )
+            if resp.status_code == 401:
+                await self.authenticate()
+                resp = await client.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self._token}",
+                        "Content-Type": "application/json",
+                    },
+                    params=params or {},
+                    json=body,
+                )
+            resp.raise_for_status()
+            return resp.json()
+
+    def _agent_record(self, raw: dict[str, Any]) -> dict[str, Any]:
+        os_info = raw.get("os")
+        os_name = os_info.get("name") if isinstance(os_info, dict) else os_info
+        platform = os_info.get("platform") if isinstance(os_info, dict) else None
+        return {
+            "id": raw.get("id"),
+            "name": raw.get("name"),
+            "ip": raw.get("ip"),
+            "status": raw.get("status"),
+            "os": os_name,
+            "platform": platform,
+            "version": raw.get("version"),
+        }
+
     async def list_agents(self, limit: int = 100) -> dict[str, Any]:
         data = await self._api_get("/agents", {"limit": str(limit), "pretty": "true"})
         items = data.get("data", {}).get("affected_items", [])
-        agents = [
-            {
-                "id": a.get("id"),
-                "name": a.get("name"),
-                "ip": a.get("ip"),
-                "status": a.get("status"),
-                "os": (a.get("os") or {}).get("name") if isinstance(a.get("os"), dict) else a.get("os"),
-                "version": a.get("version"),
-            }
-            for a in items
-        ]
+        agents = [self._agent_record(a) for a in items]
         return {"agents": agents, "total": len(agents)}
 
     async def agents_summary(self) -> dict[str, Any]:
         data = await self._api_get("/agents/summary/status")
         return data.get("data", data)
+
+    async def resolve_agent_by_name(self, name: str) -> dict[str, Any]:
+        """Exact-match one Wazuh agent by name. Ambiguous names are an error."""
+        cleaned = (name or "").strip()
+        if not cleaned:
+            return {"ok": False, "error": "no_agent_name", "agent_name": None, "matches": []}
+        items: list[dict[str, Any]] = []
+        try:
+            data = await self._api_get("/agents", {"q": f"name={cleaned}", "limit": "50"})
+            items = list(data.get("data", {}).get("affected_items") or [])
+        except httpx.HTTPStatusError:
+            items = []
+        exact = [a for a in items if str(a.get("name") or "") == cleaned]
+        if not exact:
+            data = await self._api_get("/agents", {"limit": "500"})
+            items = list(data.get("data", {}).get("affected_items") or [])
+            exact = [a for a in items if str(a.get("name") or "") == cleaned]
+        matches = [self._agent_record(a) for a in exact]
+        if not matches:
+            return {
+                "ok": False,
+                "error": "agent_not_found",
+                "agent_name": cleaned,
+                "matches": [],
+            }
+        if len(matches) > 1:
+            return {
+                "ok": False,
+                "error": "agent_name_ambiguous",
+                "agent_name": cleaned,
+                "matches": matches,
+            }
+        return {"ok": True, "agent": matches[0], "agent_name": cleaned, "matches": matches}
+
+    async def list_active_response_commands(self) -> dict[str, Any]:
+        """Registered active-response commands (manager API)."""
+        return await self._api_get("/active-response")
+
+    async def active_response(
+        self,
+        agent_ids: list[str],
+        command: str,
+        arguments: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """PUT /active-response for one or more agent ids. Does not retry on failure."""
+        ids = ",".join(str(i).strip() for i in agent_ids if str(i).strip())
+        body: dict[str, Any] = {"command": command}
+        if arguments:
+            body["arguments"] = list(arguments)
+        return await self._api_put("/active-response", body, {"agents_list": ids})
 
     async def list_alerts(
         self,

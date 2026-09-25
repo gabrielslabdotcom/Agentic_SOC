@@ -199,6 +199,60 @@ def test_containment_plan_and_disabled_execute(client: TestClient) -> None:
     assert exe.json()["reason"] == "containment_disabled"
 
 
+def test_isolation_plan_and_execute_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HOST_ISOLATION_ENABLED", raising=False)
+    db = tmp_path / "cases.sqlite"
+    settings = Settings(cases_db_path=str(db), wazuh_dashboard_url="https://example.test")
+    tools = SocTools(settings=settings, role=ANALYST)
+
+    async def _resolve(name: str) -> dict:
+        return {
+            "ok": True,
+            "agent": {
+                "id": "005",
+                "name": name,
+                "status": "active",
+                "os": "Microsoft Windows 10",
+                "platform": "windows",
+                "ip": "203.0.113.7",
+            },
+        }
+
+    tools.wazuh.resolve_agent_by_name = _resolve  # type: ignore[method-assign]
+    monkeypatch.setattr(api_mod, "get_tools", lambda: tools)
+    client = TestClient(api_mod.app)
+
+    opened = client.post(
+        "/tools/open_case",
+        json={"title": "endpoint", "alert_id": "iso-api", "agent_name": "win10"},
+    )
+    assert opened.status_code == 200
+    case_id = opened.json()["id"]
+    plan = client.get(f"/tools/isolation_plan?case_id={case_id}&record=true")
+    assert plan.status_code == 200
+    body = plan.json()
+    assert body["allowed"] is True
+    assert body["dry_run"] is True
+    assert body["command"] == "network-isolation-win0"
+    assert body["recorded"] is True
+
+    protected = client.get("/tools/isolation_plan?agent_name=pop-os-native")
+    assert protected.status_code == 200
+    assert protected.json()["allowed"] is False
+    assert protected.json()["reason"] == "protected_agent"
+
+    exe = client.post(
+        "/tools/execute_isolation",
+        json={"case_id": case_id, "confirm": True, "author": "pytest"},
+    )
+    assert exe.status_code == 200
+    assert exe.json()["executed"] is False
+    assert exe.json()["reason"] == "isolation_disabled"
+
+    missing = client.get("/tools/isolation_plan")
+    assert missing.status_code == 400
+
+
 def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = tmp_path / "cases.sqlite"
     settings = Settings(
@@ -213,7 +267,9 @@ def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert data["instance"] == "pop-live"
     assert "LIVE Pop" in data["banner"]
     assert data["containment_enabled"] is False
+    assert data["host_isolation_enabled"] is False
     assert "OR" in data["note"] or "auth" in data["note"].lower()
+    assert "HOST_ISOLATION_ENABLED" in data["note"]
 
 
 def test_disposition_endpoint_and_unknown(client: TestClient) -> None:

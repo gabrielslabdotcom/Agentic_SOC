@@ -1,0 +1,13 @@
+# Copy onto each agent before enabling host isolation.
+# Linux:  /var/ossec/etc/isolation.conf
+# Windows: C:\Program Files (x86)\ossec-agent\isolation.conf
+#
+# WAZUH_MANAGER_IP is required. Without it the script exits and does not
+# change the firewall (so a missing config cannot lock the host out).
+# ALLOWED_MGMT_IPS is a comma-separated list of analyst/jump-box addresses
+# that may still SSH (Linux) or RDP/SSH (Windows) after isolation.
+
+WAZUH_MANAGER_IP=<SIEM_HOST>
+ALLOWED_MGMT_IPS=<ANALYST_IP>
+SSH_PORT=22
+RDP_PORT=3389

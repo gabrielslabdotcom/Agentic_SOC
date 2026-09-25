@@ -1,0 +1,64 @@
+<!--
+  Merge inside the manager ossec.conf <ossec_config> (or as its own ossec_config).
+  These <command> entries make the names callable from the Wazuh API.
+  There is intentionally no <active-response> rule binding: alerts must not
+  auto-isolate. Agentic SOC calls PUT /active-response only after a human confirm.
+
+  Linux agents run the .sh files. Windows agents run the .cmd launchers.
+  The app picks the command from the agent OS.
+-->
+<ossec_config>
+  <command>
+    <name>network-isolation</name>
+    <executable>network-isolation.sh</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+
+  <command>
+    <name>network-deisolation</name>
+    <executable>network-deisolation.sh</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+
+  <command>
+    <name>network-isolation-win</name>
+    <executable>network-isolation.exe</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+
+  <command>
+    <name>network-deisolation-win</name>
+    <executable>network-deisolation.exe</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+
+  <!--
+    These bindings only publish the commands into etc/shared/ar.conf.
+    rules_id 999999 does not exist, so alerts do not auto-run them.
+    The API command names are network-isolation0 and network-isolation-win0.
+  -->
+  <active-response>
+    <disabled>no</disabled>
+    <command>network-isolation</command>
+    <location>local</location>
+    <rules_id>999999</rules_id>
+  </active-response>
+  <active-response>
+    <disabled>no</disabled>
+    <command>network-deisolation</command>
+    <location>local</location>
+    <rules_id>999999</rules_id>
+  </active-response>
+  <active-response>
+    <disabled>no</disabled>
+    <command>network-isolation-win</command>
+    <location>local</location>
+    <rules_id>999999</rules_id>
+  </active-response>
+  <active-response>
+    <disabled>no</disabled>
+    <command>network-deisolation-win</command>
+    <location>local</location>
+    <rules_id>999999</rules_id>
+  </active-response>
+</ossec_config>
