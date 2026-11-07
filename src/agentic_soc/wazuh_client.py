@@ -7,6 +7,27 @@ import httpx
 from agentic_soc.config import Settings, get_settings
 from agentic_soc.triage import AUTH_FAILURE_GROUPS, AUTH_FAILURE_RULE_IDS
 
+# Index patterns Ask Pop may query. Anything else is rejected.
+ALLOWED_INDEX_PATTERNS = frozenset(
+    {
+        "wazuh-alerts-*",
+        "wazuh-states-inventory-ports-*",
+        "wazuh-states-inventory-processes-*",
+        "wazuh-states-inventory-packages-*",
+        "wazuh-states-inventory-users-*",
+        "wazuh-states-inventory-services-*",
+        "wazuh-states-inventory-hotfixes-*",
+        "wazuh-states-inventory-networks-*",
+        "wazuh-states-inventory-interfaces-*",
+        "wazuh-states-inventory-system-*",
+        "wazuh-states-inventory-hardware-*",
+        "wazuh-states-inventory-browser-extensions-*",
+        "wazuh-states-inventory-groups-*",
+        "wazuh-states-inventory-protocols-*",
+        "wazuh-states-vulnerabilities-*",
+    }
+)
+
 
 def build_alerts_search_body(
     *,
@@ -318,3 +339,53 @@ class WazuhClient:
                 "description": (src.get("rule") or {}).get("description"),
                 "raw": src,
             }
+
+    async def search_index(
+        self,
+        index_pattern: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run an OpenSearch query against an allow-listed index pattern."""
+        pattern = (index_pattern or "").strip()
+        if pattern not in ALLOWED_INDEX_PATTERNS:
+            return {
+                "ok": False,
+                "error": "index_not_allowed",
+                "index": pattern,
+                "allowed": sorted(ALLOWED_INDEX_PATTERNS),
+            }
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "invalid_body", "index": pattern}
+        url = f"{self.settings.wazuh_indexer_url.rstrip('/')}/{pattern}/_search"
+        async with httpx.AsyncClient(
+            verify=self.settings.wazuh_indexer_verify_ssl,
+            timeout=30,
+        ) as client:
+            resp = await client.post(
+                url,
+                auth=(self.settings.wazuh_indexer_user, self.settings.wazuh_indexer_password),
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        if not isinstance(data, dict):
+            return {"ok": False, "error": "invalid_response", "index": pattern}
+        hits = data.get("hits") if isinstance(data.get("hits"), dict) else {}
+        total = hits.get("total", 0)
+        total_val = total.get("value", 0) if isinstance(total, dict) else total
+        docs: list[dict[str, Any]] = []
+        for h in hits.get("hits") or []:
+            if not isinstance(h, dict):
+                continue
+            src = h.get("_source") if isinstance(h.get("_source"), dict) else {}
+            docs.append({"id": h.get("_id"), "source": src})
+        aggs = data.get("aggregations") if isinstance(data.get("aggregations"), dict) else {}
+        return {
+            "ok": True,
+            "index": pattern,
+            "total": total_val,
+            "count": len(docs),
+            "hits": docs,
+            "aggregations": aggs,
+        }

@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f7f6f3;
+  --color-panel: #ffffff;
+  --color-elevated: #eeeeea;
+  --color-border: #e4e2dc;
+  --color-text: #141413;
+  --color-muted: #6b6a66;
+  --color-accent: #0f7a6a;
+  --color-accent-dim: #0c5f53;
+  --color-accent-soft: #e6f4f1;
+  --color-danger: #c23b3b;
+  --color-warn: #b57a16;
+  --color-ok: #1f7a4d;
+  --color-info: #2f5f8f;
+  --font-sans: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(15, 122, 106, 0.06), transparent 55%),
+    linear-gradient(180deg, #faf9f6 0%, var(--color-bg) 40%);
+}
+
+::selection {
+  background: rgba(15, 122, 106, 0.2);
+  color: var(--color-text);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.prose-block {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  padding: 0.75rem;
+  max-height: 320px;
+  overflow: auto;
+  color: var(--color-text);
+}
+
+.page-enter {
+  animation: pageFade 180ms ease-out;
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheetUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sheet-enter {
+  animation: sheetUp 200ms ease-out;
+}

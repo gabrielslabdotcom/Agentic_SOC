@@ -1,0 +1,22 @@
+<!--
+  Pi-hole / dnsmasq query log decoders.
+  File-collected pihole.log lines omit a syslog hostname, so Wazuh pre-decodes
+  "dnsmasq[pid]:" into the hostname field and leaves the message body for matching.
+-->
+<decoder name="pihole-query">
+  <prematch type="pcre2">query\[</prematch>
+  <regex type="pcre2">query\[(\w+)\] (\S+) from (\S+)</regex>
+  <order>protocol, url, srcip</order>
+</decoder>
+
+<decoder name="pihole-gravity-block">
+  <prematch type="pcre2">gravity blocked|/etc/pihole/(?:gravity|black)\.list</prematch>
+  <regex type="pcre2">(?:gravity blocked |/etc/pihole/(?:gravity|black)\.list )(\S+) is (0\.0\.0\.0|::)</regex>
+  <order>url, dstip</order>
+</decoder>
+
+<decoder name="pihole-nxdomain">
+  <prematch type="pcre2">reply \S+ is NXDOMAIN</prematch>
+  <regex type="pcre2">reply (\S+) is NXDOMAIN</regex>
+  <order>url</order>
+</decoder>

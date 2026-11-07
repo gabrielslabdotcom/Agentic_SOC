@@ -28,7 +28,7 @@ def test_get_case_and_approve(client: TestClient) -> None:
         json={
             "title": "Lab port scan",
             "alert_id": "abc-123",
-            "agent_name": "pop-os-native",
+            "agent_name": "siem-host",
             "summary": "Aggregate UFW blocks",
             "severity": "high",
             "recommended_action": "document only",
@@ -103,16 +103,22 @@ def test_ui_config_and_dashboard(client: TestClient) -> None:
     dash = client.get("/dashboard/", follow_redirects=True)
     assert dash.status_code == 200
     assert "Agentic SOC Analyst" in dash.text
-    assert "instance-banner" in dash.text
-    assert "min-level 8" in dash.text
-    assert "Cursor investigation" in dash.text
-    assert "rule_id" in dash.text
-    assert "auto-close" in dash.text
-    assert "Select all" in dash.text
-    assert "Apply to selected" in dash.text
-    assert "False Positive" in dash.text
-    assert "Confirmed Compromise" in dash.text
-    assert "Containment plan" in dash.text
+    assert 'id="root"' in dash.text
+    assert "/dashboard/static/assets/" in dash.text
+
+    import re
+
+    match = re.search(r'src="(/dashboard/static/assets/[^"]+\.js)"', dash.text)
+    assert match, "dashboard shell must reference a JS bundle"
+    bundle = client.get(match.group(1))
+    assert bundle.status_code == 200
+    js = bundle.text
+    assert "Confirmed Compromise" in js
+    assert "Containment plan" in js
+    assert "Select all" in js
+    assert "Apply to selected" in js
+    assert "Cursor investigation" in js
+    assert "instance-banner" in js
 
 
 def test_approve_records_feedback(client: TestClient) -> None:
@@ -169,7 +175,9 @@ def test_bulk_approve_open_cases_only(client: TestClient) -> None:
     assert client.get(f"/tools/get_case/{done}").json()["status"] == "confirmed_compromise"
 
 
-def test_containment_plan_and_disabled_execute(client: TestClient) -> None:
+def test_containment_plan_and_disabled_execute(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     opened = client.post(
         "/tools/open_case",
         json={
@@ -186,7 +194,8 @@ def test_containment_plan_and_disabled_execute(client: TestClient) -> None:
     assert body["dry_run"] is True
     assert "ufw" in (body.get("command") or "")
 
-    blocked = client.get("/tools/containment_plan?source_ip=192.168.50.254")
+    monkeypatch.setenv("CONTAINMENT_PROTECT_IPS", "203.0.113.10")
+    blocked = client.get("/tools/containment_plan?source_ip=203.0.113.10")
     assert blocked.status_code == 200
     assert blocked.json()["allowed"] is False
 
@@ -236,7 +245,7 @@ def test_isolation_plan_and_execute_disabled(tmp_path: Path, monkeypatch: pytest
     assert body["command"] == "network-isolation-win0"
     assert body["recorded"] is True
 
-    protected = client.get("/tools/isolation_plan?agent_name=pop-os-native")
+    protected = client.get("/tools/isolation_plan?agent_name=siem-host")
     assert protected.status_code == 200
     assert protected.json()["allowed"] is False
     assert protected.json()["reason"] == "protected_agent"
@@ -265,7 +274,7 @@ def test_ui_config_pop_live_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     client = TestClient(api_mod.app)
     data = client.get("/tools/ui_config").json()
     assert data["instance"] == "pop-live"
-    assert "LIVE Pop" in data["banner"]
+    assert "LIVE SIEM-host" in data["banner"]
     assert data["containment_enabled"] is False
     assert data["host_isolation_enabled"] is False
     assert "OR" in data["note"] or "auth" in data["note"].lower()

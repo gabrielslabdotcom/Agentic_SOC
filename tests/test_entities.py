@@ -14,18 +14,18 @@ from agentic_soc.tools import SocTools
 
 def test_upsert_entity_idempotent(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "cases.sqlite")
-    first = store.upsert_entity("ip", "192.168.50.99")
-    second = store.upsert_entity("IP", "192.168.50.99")
+    first = store.upsert_entity("ip", "203.0.113.99")
+    second = store.upsert_entity("IP", "203.0.113.99")
     assert first["id"] == second["id"]
     assert first["entity_type"] == "ip"
-    assert first["value"] == "192.168.50.99"
+    assert first["value"] == "203.0.113.99"
 
 
 def test_find_related_same_ip_two_cases(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "cases.sqlite")
-    c1 = store.open_case(title="nmap one", alert_id="alert-1", agent_name="pop-os-native")
-    c2 = store.open_case(title="nmap two", alert_id="alert-2", agent_name="pop-os-native")
-    entity = store.upsert_entity("ip", "192.168.50.99")
+    c1 = store.open_case(title="nmap one", alert_id="alert-1", agent_name="siem-host")
+    c2 = store.open_case(title="nmap two", alert_id="alert-2", agent_name="siem-host")
+    entity = store.upsert_entity("ip", "203.0.113.99")
     store.link_alert_to_entity(entity["id"], "alert-1", case_id=c1["id"])
     store.link_case_to_entity(entity["id"], c2["id"], alert_id="alert-2")
 
@@ -35,9 +35,9 @@ def test_find_related_same_ip_two_cases(tmp_path: Path) -> None:
     assert c1["id"] not in ids
     assert related["count"] == 1
     matched = related["related_cases"][0]["matched_entities"]
-    assert any(e["value"] == "192.168.50.99" for e in matched)
+    assert any(e["value"] == "203.0.113.99" for e in matched)
 
-    by_ip = store.find_related(entity_type="ip", value="192.168.50.99")
+    by_ip = store.find_related(entity_type="ip", value="203.0.113.99")
     by_ip_ids = {c["id"] for c in by_ip["related_cases"]}
     assert by_ip_ids == {c1["id"], c2["id"]}
 
@@ -46,7 +46,7 @@ def test_find_related_host_not_followed_from_case(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "cases.sqlite")
     c1 = store.open_case(title="host a")
     c2 = store.open_case(title="host b")
-    host = store.upsert_entity("host", "pop-os-native")
+    host = store.upsert_entity("host", "siem-host")
     store.link_case_to_entity(host["id"], c1["id"])
     store.link_case_to_entity(host["id"], c2["id"])
 
@@ -62,15 +62,15 @@ def test_correlate_alert_links_source_ip(tmp_path: Path) -> None:
     tools = SocTools(settings=settings)
     alert = {
         "id": "alert-1",
-        "agent": "pop-os-native",
-        "full_log": "[UFW BLOCK] SRC=192.168.50.99 DST=192.168.50.254 DPT=22",
+        "agent": "siem-host",
+        "full_log": "[UFW BLOCK] SRC=203.0.113.99 DST=203.0.113.10 DPT=22",
         "description": "Possible port scan (lab)",
     }
-    c1 = tools.open_case(title="scan 1", alert_id="alert-1", agent_name="pop-os-native")
+    c1 = tools.open_case(title="scan 1", alert_id="alert-1", agent_name="siem-host")
     tools.correlate_alert(alert, case_id=c1["id"], alert_id="alert-1")
 
     alert2 = {**alert, "id": "alert-2"}
-    c2 = tools.open_case(title="scan 2", alert_id="alert-2", agent_name="pop-os-native")
+    c2 = tools.open_case(title="scan 2", alert_id="alert-2", agent_name="siem-host")
     tools.correlate_alert(alert2, case_id=c2["id"], alert_id="alert-2")
 
     related = tools.find_related(case_id=c1["id"])
@@ -163,10 +163,10 @@ def test_benign_skips_repeats(tmp_path: Path) -> None:
         title="lab scan",
         alert_id="alert-scan-2",
         rule_id="100102",
-        source_ip="192.168.50.187",
+        source_ip="203.0.113.187",
     )
     store.resolve_proposal(case["id"], disposition="benign", note="our kali")
-    skip = store.rejected_similar(rule_id="100102", source_ip="192.168.50.187")
+    skip = store.rejected_similar(rule_id="100102", source_ip="203.0.113.187")
     assert skip["skip"] is True
 
 
@@ -176,7 +176,7 @@ def test_auto_close_noise_records_skip_feedback(tmp_path: Path) -> None:
         title="CIS noise",
         alert_id="cis-1",
         rule_id="19008",
-        source_ip="192.168.50.254",
+        source_ip="203.0.113.10",
         recommended_action="close_as_benign_lab_noise",
     )
     closed = store.auto_close_noise(case["id"], note="heuristic_noise: informational")
@@ -184,5 +184,5 @@ def test_auto_close_noise_records_skip_feedback(tmp_path: Path) -> None:
     notes = " ".join(n["note"] for n in closed.get("notes") or [])
     assert "auto_closed_noise" in notes
     assert "containment=not_executed" in notes
-    skip = store.rejected_similar(rule_id="19008", source_ip="192.168.50.254")
+    skip = store.rejected_similar(rule_id="19008", source_ip="203.0.113.10")
     assert skip["skip"] is True

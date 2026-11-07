@@ -1,0 +1,45 @@
+<!--
+  High-signal Pi-hole DNS rules. Merge into manager etc/rules/local_rules.xml.
+  Base queries stay low-level; blocks and NXDOMAIN floods are elevated.
+-->
+<group name="local,pihole,dns,">
+  <rule id="100501" level="3">
+    <decoded_as>pihole-query</decoded_as>
+    <description>Pi-hole DNS query.</description>
+    <group>pihole,dns_query,</group>
+  </rule>
+
+  <rule id="100510" level="6">
+    <decoded_as>pihole-gravity-block</decoded_as>
+    <description>Pi-hole blocked a DNS query (gravity/blacklist).</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>pihole,dns_block,attack,</group>
+  </rule>
+
+  <rule id="100511" level="8" frequency="40" timeframe="60" ignore="120">
+    <if_matched_sid>100510</if_matched_sid>
+    <same_source_ip />
+    <description>Possible malicious DNS activity: many Pi-hole blocks from same source.</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>pihole,dns_block,recon,attack,</group>
+  </rule>
+
+  <rule id="100520" level="4">
+    <decoded_as>pihole-nxdomain</decoded_as>
+    <description>Pi-hole DNS NXDOMAIN reply.</description>
+    <group>pihole,dns_nxdomain,</group>
+  </rule>
+
+  <rule id="100521" level="8" frequency="50" timeframe="60" ignore="120">
+    <if_matched_sid>100520</if_matched_sid>
+    <description>Possible DNS tunneling or scan: many NXDOMAIN replies.</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>pihole,dns_nxdomain,attack,</group>
+  </rule>
+</group>

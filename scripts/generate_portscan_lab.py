@@ -22,7 +22,7 @@ def probe(host: str, port: int, timeout: float) -> tuple[int, int | str]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Generate lab port-scan traffic for Wazuh/UFW detection")
-    p.add_argument("--host", default="192.168.50.254")
+    p.add_argument("--host", default="203.0.113.10", help="Target host (documentation IP; override for your lab)")
     p.add_argument("--timeout", type=float, default=0.35)
     p.add_argument("--workers", type=int, default=40)
     p.add_argument(
@@ -58,7 +58,7 @@ def main() -> int:
     elapsed = time.time() - started
     print(f"Done in {elapsed:.1f}s. connect_ok={open_ports[:20]}")
     print("Wait ~15–30s, then search Wazuh for: Possible port scan / UFW firewall block event")
-    print("  python scripts/agent_triage.py --min-level 5 --agent-name pop-os-native")
+    print("  python scripts/agent_triage.py --min-level 5 --agent-name siem-host")
     return 0
 
 

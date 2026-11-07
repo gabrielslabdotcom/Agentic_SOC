@@ -173,6 +173,10 @@ class ConnectorBody(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+class SearchBody(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+
+
 def _require_setup_token(token: Optional[str]) -> None:
     if token_matches(token):
         return
@@ -198,9 +202,10 @@ def ui_config() -> dict[str, Any]:
     instance = settings.resolve_instance()
     live = instance == "pop-live"
     min_level = os.environ.get("AUTONOMY_MIN_LEVEL", "8")
+    live_ui = "http://<SIEM_HOST>:8080/"
     if live:
         note = (
-            "LIVE Pop cases (Discord / autonomy DB). Analyst outcomes "
+            "LIVE SIEM-host cases (Discord / autonomy DB). Analyst outcomes "
             "(false positive, benign, informational, duplicate, confirmed compromise) "
             "record status + note only. Containment is never executed. Live min-level "
             "stays 8; sshd/PAM auth failures at level 5 are OR'd in (AUTONOMY_INCLUDE_AUTH). "
@@ -210,16 +215,15 @@ def ui_config() -> dict[str, Any]:
             "(AUTONOMY_AUTO_CLOSE_NOISE). UFW deny is a dry-run plan unless "
             "CONTAINMENT_ENABLED=true (still HITL, never auto). Host isolation is a "
             "separate dry-run plan unless HOST_ISOLATION_ENABLED=true (still HITL, "
-            "never auto). The SIEM agent cannot be isolated."
+            "never auto). The SIEM host agent cannot be isolated."
         )
-        banner = "LIVE Pop cases — Discord / autonomy DB. Not the Mac local copy."
+        banner = "LIVE SIEM-host cases — Discord / autonomy DB. Not the local clone."
     else:
         note = (
-            "Mac local copy of cases.sqlite — this is NOT the Discord / autonomy DB on Pop. "
-            "Open live cases at http://192.168.50.254:8080/ (UFW allowlisted). "
-            "Optional fallback: ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/"
+            "Local clone of cases.sqlite — this is NOT the Discord / autonomy DB on the SIEM host. "
+            f"Open live cases at {live_ui} (firewall allowlisted)."
         )
-        banner = "Mac local copy — not Discord / Pop autonomy cases. Live UI: http://192.168.50.254:8080/"
+        banner = f"Local clone — not Discord / SIEM-host autonomy cases. Live UI: {live_ui}"
     return {
         "app_name": "Agentic SOC Analyst",
         "instance": instance,
@@ -579,6 +583,12 @@ async def enrich_ioc(
     if result.get("error") and result.get("status_code") in (401, 403):
         raise HTTPException(status_code=502, detail=result)
     return result
+
+
+@app.post("/tools/search")
+async def search(body: SearchBody) -> dict[str, Any]:
+    """Ask Pop: natural-language search over alerts, inventory, vulns, and cases."""
+    return _release(await get_tools().search(body.question))
 
 
 @app.get("/tools/setup")

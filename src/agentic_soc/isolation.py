@@ -2,7 +2,7 @@
 
 Default is dry-run: record the plan on the case. Never called from
 autonomy_loop. Execute requires HOST_ISOLATION_ENABLED=true plus an
-explicit human confirm. The SIEM agent (pop-os-native) cannot be isolated.
+explicit human confirm. The SIEM host agent cannot be isolated.
 """
 
 from __future__ import annotations
@@ -11,7 +11,8 @@ import json
 import os
 from typing import Any, Optional
 
-PROTECTED_AGENTS = frozenset({"pop-os-native"})
+# Default label for the manager's own agent. Override via ISOLATION_PROTECT_AGENTS.
+PROTECTED_AGENTS = frozenset({"siem-host"})
 
 
 def isolation_enabled() -> bool:

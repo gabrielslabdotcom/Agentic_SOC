@@ -270,7 +270,7 @@ def test_handle_outcome_click_resolves(tmp_path: Path) -> None:
     opened = store.open_case(
         title="Discord click",
         alert_id="alert-discord-1",
-        agent_name="pop-os-native",
+        agent_name="siem-host",
         summary="lab",
         severity="medium",
         recommended_action="document",

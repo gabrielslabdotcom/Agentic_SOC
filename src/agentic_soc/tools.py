@@ -616,6 +616,20 @@ class SocTools:
 
         return {"linked": linked, "count": len(linked)}
 
+    async def search(self, question: str) -> dict[str, Any]:
+        """Ask Pop natural-language search (read-only)."""
+        denied = self._guard("search")
+        if denied:
+            return denied
+        from agentic_soc.search import SearchEngine
+
+        engine = SearchEngine(
+            settings=self.settings,
+            wazuh=self.wazuh,
+            cases=self.cases,
+        )
+        return await engine.run_search(question)
+
 
 _tools: Optional[SocTools] = None
 

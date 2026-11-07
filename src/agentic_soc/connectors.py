@@ -54,6 +54,11 @@ _FIELDS: dict[str, list[tuple[str, str, bool, str]]] = {
         ("openai_api_key", "API key", True, "password"),
         ("openai_model", "Model", False, "text"),
     ],
+    "anthropic": [
+        ("anthropic_api_key", "API key", True, "password"),
+        ("anthropic_base_url", "Base URL", False, "text"),
+        ("anthropic_model", "Model", False, "text"),
+    ],
     "virustotal": [
         ("virustotal_api_key", "API key", True, "password"),
     ],
@@ -85,6 +90,12 @@ CATALOG: list[dict[str, Any]] = [
         "blurb": "Chat endpoint for OpenAI, Ollama, or any compatible API.",
     },
     {
+        "id": "anthropic",
+        "kind": "search_llm",
+        "name": "Anthropic",
+        "blurb": "Claude Haiku powers Ask Pop natural-language search. Independent of the meaning-note LLM.",
+    },
+    {
         "id": "virustotal",
         "kind": "enrichment",
         "name": "VirusTotal",
@@ -104,6 +115,10 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     "openai": {
         "openai_base_url": "https://api.openai.com/v1",
         "openai_model": "gpt-4o-mini",
+    },
+    "anthropic": {
+        "anthropic_base_url": "https://api.anthropic.com",
+        "anthropic_model": "claude-haiku-4-5",
     },
 }
 
@@ -304,6 +319,8 @@ def _configured(connector_id: str, config: dict[str, Any]) -> bool:
         return bool(str(config.get("openai_api_key") or "").strip()) and bool(
             str(config.get("openai_base_url") or "").strip()
         )
+    if connector_id == "anthropic":
+        return bool(str(config.get("anthropic_api_key") or "").strip())
     if connector_id == "virustotal":
         return bool(str(config.get("virustotal_api_key") or "").strip())
     if connector_id == "discord":
@@ -362,6 +379,7 @@ def summary(settings: Optional[Settings] = None) -> dict[str, Any]:
     wazuh = _entry(store, "wazuh")
     cursor = _entry(store, "cursor")
     openai = _entry(store, "openai")
+    anthropic = _entry(store, "anthropic")
     vt = _entry(store, "virustotal")
     discord = _entry(store, "discord")
     llm = ""
@@ -373,6 +391,9 @@ def summary(settings: Optional[Settings] = None) -> dict[str, Any]:
         "ready": wazuh_ready(settings),
         "wazuh": bool(wazuh["enabled"] and _configured("wazuh", wazuh["config"])),
         "llm": llm,
+        "search_llm": bool(
+            anthropic["enabled"] and _configured("anthropic", anthropic["config"])
+        ),
         "virustotal": bool(vt["enabled"] and _configured("virustotal", vt["config"])),
         "discord": bool(discord["enabled"] and _configured("discord", discord["config"])),
     }
@@ -465,6 +486,15 @@ def apply_store(settings: Settings) -> Settings:
         updates["openai_api_key"] = ""
         updates["llm_connector"] = ""
 
+    if "anthropic" in connectors:
+        entry = _entry(store, "anthropic")
+        if entry["enabled"]:
+            updates.update(_settings_from_config("anthropic", entry["config"]))
+        else:
+            updates["anthropic_api_key"] = ""
+            updates["anthropic_base_url"] = "https://api.anthropic.com"
+            updates["anthropic_model"] = "claude-haiku-4-5"
+
     if "virustotal" in connectors:
         entry = _entry(store, "virustotal")
         if entry["enabled"]:
@@ -519,11 +549,41 @@ async def test_connector(
         return {"ok": False, "error": "API key is empty"}
     if connector_id == "openai":
         return await _test_openai(merged)
+    if connector_id == "anthropic":
+        return await _test_anthropic(merged)
     if connector_id == "virustotal":
         return await _test_virustotal(merged)
     if connector_id == "discord":
         return await _test_discord(merged)
     return {"ok": False, "error": "unknown connector"}
+
+
+async def _test_anthropic(config: dict[str, Any]) -> dict[str, Any]:
+    from agentic_soc.anthropic_llm import complete_messages
+
+    key = str(config.get("anthropic_api_key") or "").strip()
+    base = str(config.get("anthropic_base_url") or "").strip() or "https://api.anthropic.com"
+    model = str(config.get("anthropic_model") or "claude-haiku-4-5").strip()
+    if not key:
+        return {"ok": False, "error": "API key is empty"}
+    try:
+        payload = await complete_messages(
+            base_url=base,
+            api_key=key,
+            model=model,
+            messages=[{"role": "user", "content": "Reply with the single word ok."}],
+            max_tokens=16,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    text = ""
+    if isinstance(payload, dict):
+        from agentic_soc.anthropic_llm import extract_text
+
+        text = extract_text(payload)
+    if not text:
+        return {"ok": False, "error": "The endpoint returned an empty reply"}
+    return {"ok": True, "message": "Anthropic Messages API replied"}
 
 
 async def _test_wazuh(config: dict[str, Any]) -> dict[str, Any]:

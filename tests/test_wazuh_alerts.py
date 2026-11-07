@@ -15,13 +15,13 @@ def test_since_sorts_asc_and_filters() -> None:
         min_level=8,
         since="2026-09-08T12:00:00.000Z",
         exclude_rule_ids=["100100"],
-        agent_name="pop-os-native",
+        agent_name="siem-host",
     )
     assert body["sort"] == [{"@timestamp": {"order": "asc"}}]
     must = body["query"]["bool"]["must"]
     assert {"range": {"@timestamp": {"gt": "2026-09-08T12:00:00.000Z"}}} in must
     assert {"range": {"rule.level": {"gte": 8}}} in must
-    assert {"match": {"agent.name": "pop-os-native"}} in must
+    assert {"match": {"agent.name": "siem-host"}} in must
     assert body["query"]["bool"]["must_not"] == [{"terms": {"rule.id": ["100100"]}}]
 
 
@@ -34,10 +34,10 @@ def test_blank_agent_name_does_not_filter() -> None:
 
 def test_comma_separated_agents_use_terms() -> None:
     body = build_alerts_search_body(
-        agent_name="pop-os-native,HYDRA-DC,SPIDERMAN",
+        agent_name="siem-host,domain-controller,SPIDERMAN",
     )
     must = body["query"]["bool"]["must"]
-    assert {"terms": {"agent.name": ["pop-os-native", "HYDRA-DC", "SPIDERMAN"]}} in must
+    assert {"terms": {"agent.name": ["siem-host", "domain-controller", "SPIDERMAN"]}} in must
 
 
 def test_blank_since_treated_as_absent() -> None:

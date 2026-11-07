@@ -30,7 +30,7 @@ agentic-soc-mcp = "agentic_soc.mcp_server:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentic_soc = ["static/*"]
+agentic_soc = ["static/*", "static/assets/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

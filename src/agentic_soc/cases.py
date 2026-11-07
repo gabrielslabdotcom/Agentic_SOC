@@ -17,7 +17,7 @@ from agentic_soc.triage import fallback_brief_from_case, severity_rose
 
 ENTITY_TYPES = frozenset({"ip", "user", "host", "hash", "domain"})
 # host is stored for inventory, but case-to-case expansion ignores it so every
-# alert on pop-os-native does not show up as "related".
+# alert on the SIEM host agent does not show up as "related".
 _FOLLOW_TYPES_FROM_CASE = frozenset({"ip", "user", "hash", "domain"})
 # Analyst-managed suppressions force auto-close as these dispositions only.
 SUPPRESSION_DISPOSITIONS = frozenset({"informational", "false_positive"})
@@ -1512,6 +1512,117 @@ class CaseStore:
                 (cur.lastrowid,),
             ).fetchone()
         return dict(row)
+
+    def search_cases(
+        self,
+        *,
+        text: Optional[str] = None,
+        status: Optional[str] = None,
+        severity: Optional[str] = None,
+        agent: Optional[str] = None,
+        user: Optional[str] = None,
+        source_ip: Optional[str] = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """LIKE search over cases, notes, and entity links. Read-only."""
+        cap = max(1, min(int(limit or 50), 50))
+        clauses: list[str] = ["1=1"]
+        params: list[Any] = []
+
+        status_v = (status or "").strip().lower()
+        if status_v:
+            clauses.append("c.status = ?")
+            params.append(status_v)
+
+        severity_v = (severity or "").strip().lower()
+        if severity_v:
+            clauses.append("lower(c.severity) = ?")
+            params.append(severity_v)
+
+        agent_v = (agent or "").strip()
+        if agent_v:
+            clauses.append("c.agent_name LIKE ?")
+            params.append(f"%{agent_v}%")
+
+        user_v = (user or "").strip()
+        if user_v:
+            clauses.append(
+                """(
+                    ifnull(c.actor_user, '') LIKE ?
+                    OR EXISTS (
+                        SELECT 1 FROM entity_links el
+                        JOIN entities e ON e.id = el.entity_id
+                        WHERE el.case_id = c.id
+                          AND e.entity_type = 'user'
+                          AND e.value LIKE ?
+                    )
+                )"""
+            )
+            params.extend([f"%{user_v}%", f"%{user_v}%"])
+
+        sip = (source_ip or "").strip()
+        if sip:
+            clauses.append(
+                """(
+                    ifnull(c.source_ip, '') LIKE ?
+                    OR EXISTS (
+                        SELECT 1 FROM entity_links el
+                        JOIN entities e ON e.id = el.entity_id
+                        WHERE el.case_id = c.id
+                          AND e.entity_type = 'ip'
+                          AND e.value LIKE ?
+                    )
+                )"""
+            )
+            params.extend([f"%{sip}%", f"%{sip}%"])
+
+        text_v = (text or "").strip()
+        if text_v:
+            like = f"%{text_v}%"
+            clauses.append(
+                """(
+                    c.title LIKE ?
+                    OR ifnull(c.summary, '') LIKE ?
+                    OR ifnull(c.recommended_action, '') LIKE ?
+                    OR ifnull(c.rule_id, '') LIKE ?
+                    OR EXISTS (
+                        SELECT 1 FROM case_notes n
+                        WHERE n.case_id = c.id AND n.note LIKE ?
+                    )
+                )"""
+            )
+            params.extend([like, like, like, like, like])
+
+        where = " AND ".join(clauses)
+        sql = f"""
+            SELECT c.*
+            FROM cases c
+            WHERE {where}
+            ORDER BY c.updated_at DESC
+            LIMIT ?
+        """
+        params.append(cap)
+        with self._connect() as conn:
+            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+            for row in rows:
+                notes = conn.execute(
+                    """
+                    SELECT id, author, note, created_at
+                    FROM case_notes WHERE case_id = ?
+                    ORDER BY id DESC LIMIT 3
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                row["notes"] = [dict(n) for n in notes]
+                brief_raw = row.pop("brief_json", None)
+                if brief_raw:
+                    try:
+                        row["brief"] = json.loads(brief_raw)
+                    except (TypeError, json.JSONDecodeError):
+                        row["brief"] = None
+                else:
+                    row["brief"] = None
+        return {"ok": True, "count": len(rows), "cases": rows, "total": len(rows)}
 
     def find_related(
         self,

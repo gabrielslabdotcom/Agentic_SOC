@@ -1,4 +1,5 @@
 # Paths below are host-specific — edit WorkingDirectory / EnvironmentFile for your install ($AGENTIC_SOC_HOME).
+# Template uses /opt/agentic-soc — replace with your install path before enabling.
 [Unit]
 Description=Agentic SOC autonomous triage loop
 After=network-online.target docker.service
@@ -6,9 +7,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/admin/Agentic_SOC
+WorkingDirectory=/opt/agentic-soc
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=-/home/admin/Agentic_SOC/.env
+EnvironmentFile=-/opt/agentic-soc/.env
+Environment=AGENTIC_SOC_INSTANCE=pop-live
 Environment=AUTONOMY_INTERVAL=120
 Environment=AUTONOMY_MIN_LEVEL=8
 Environment=AUTONOMY_LIMIT=40
@@ -21,12 +23,12 @@ Environment=AUTONOMY_INCLUDE_AUTH=true
 Environment=AUTONOMY_AUTH_MIN_LEVEL=5
 Environment=AUTONOMY_FEEDBACK_SKIP=true
 Environment=AUTONOMY_AUTO_CLOSE_NOISE=true
-# Cursor cloud propose-only investigation (Mac-offline). Keep false until
+# Cursor cloud propose-only investigation. Keep false until
 # CURSOR_API_KEY + CURSOR_AGENT_REPO are set in .env and `[cursor]` extra is installed.
 # Environment=AUTONOMY_CURSOR_AGENT=false
 # Environment=CURSOR_AGENT_MODEL=composer-2.5
 # Do not put CURSOR_API_KEY here — use EnvironmentFile .env only.
-ExecStart=/home/admin/Agentic_SOC/.venv/bin/python /home/admin/Agentic_SOC/scripts/autonomy_loop.py
+ExecStart=/opt/agentic-soc/.venv/bin/python /opt/agentic-soc/scripts/autonomy_loop.py
 Restart=on-failure
 RestartSec=15
 Nice=10

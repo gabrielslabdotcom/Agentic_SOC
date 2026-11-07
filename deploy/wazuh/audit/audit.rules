@@ -1,0 +1,33 @@
+## Minimal SOC-oriented auditd rules for Pop / Linux lab hosts.
+## Install: copy to /etc/audit/rules.d/70-agentic-soc.rules then
+##   sudo augenrules --load && sudo systemctl restart auditd
+## Collect via linux agent group localfile on /var/log/audit/audit.log
+
+## Delete prior rules so this file is authoritative for the lab profile
+-D
+
+## Buffer
+-b 8192
+-f 1
+
+## Identity / privileged account files
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/sudoers -p wa -k identity
+-w /etc/sudoers.d -p wa -k identity
+
+## SSH config
+-w /etc/ssh/sshd_config -p wa -k sshd
+
+## Cron / systemd persistence
+-w /etc/crontab -p wa -k cron
+-w /etc/cron.d -p wa -k cron
+-w /etc/cron.daily -p wa -k cron
+-w /etc/systemd/system -p wa -k systemd
+-w /lib/systemd/system -p wa -k systemd
+
+## Privileged execution (32/64-bit)
+-a always,exit -F arch=b64 -S execve -F euid=0 -k root_exec
+-a always,exit -F arch=b32 -S execve -F euid=0 -k root_exec

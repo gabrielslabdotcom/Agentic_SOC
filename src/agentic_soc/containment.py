@@ -19,7 +19,6 @@ PROTECTED_IPS = frozenset(
         "127.0.0.1",
         "0.0.0.0",
         "255.255.255.255",
-        "192.168.50.254",  # Pop Wazuh / SSH host
     }
 )
 

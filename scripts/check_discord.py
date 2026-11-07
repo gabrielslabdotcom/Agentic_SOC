@@ -31,7 +31,7 @@ async def main() -> int:
     opened = tools.open_case(
         title="[discord-check] Example port-scan (connectivity test)",
         alert_id=alert_id,
-        agent_name="pop-os-native",
+        agent_name="siem-host",
         summary=(
             "[discord-check]\nConnectivity test case for Discord outcome buttons. "
             "Safe to close with any analyst outcome (record-only)."
@@ -65,7 +65,7 @@ async def main() -> int:
         "severity": "high",
         "confidence": 0.7,
         "recommended_action": "investigate_and_document",
-        "agent_name": "pop-os-native",
+        "agent_name": "siem-host",
         "alert_id": alert_id,
         "rule_id": "100102",
         "rule_level": 8,

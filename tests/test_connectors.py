@@ -33,7 +33,7 @@ def test_appliance_without_store_blanks_lab_host(data_dir: Path, monkeypatch: py
     assert settings.wazuh_api_url == ""
     assert settings.wazuh_indexer_url == ""
     assert settings.wazuh_api_password == ""
-    assert "192.168.50.254" not in settings.wazuh_dashboard_url
+    assert settings.wazuh_dashboard_url == ""
 
 
 def test_store_overrides_env(data_dir: Path) -> None:
@@ -155,5 +155,15 @@ def test_setup_ready_and_token(data_dir: Path, monkeypatch: pytest.MonkeyPatch) 
 
     dash = client.get("/dashboard/")
     assert dash.status_code == 200
-    assert "host.docker.internal" in dash.text
-    assert "Connectors" in dash.text
+    assert 'id="root"' in dash.text
+    assert "/dashboard/static/assets/" in dash.text
+
+    import re
+
+    match = re.search(r'src="(/dashboard/static/assets/[^"]+\.js)"', dash.text)
+    assert match, "dashboard shell must reference a JS bundle"
+    bundle = client.get(match.group(1))
+    assert bundle.status_code == 200
+    js = bundle.text
+    assert "host.docker.internal" in js
+    assert "Connectors" in js

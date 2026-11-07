@@ -28,7 +28,7 @@ def _case(**overrides: object) -> dict:
         "severity": "high",
         "confidence": 0.7,
         "alert_id": "abc-123",
-        "agent_name": "pop-os-native",
+        "agent_name": "siem-host",
         "rule_id": "5710",
         "rule_level": 10,
         "timestamp": "2026-09-07T15:00:00.000Z",
@@ -68,7 +68,7 @@ def test_build_prompt_includes_case_fields_and_propose_only():
     assert "Do **not** approve" in prompt
     assert "Do **not** call Wazuh" in prompt
     assert "/tools/update_case" not in prompt
-    assert "192.168.50.254" not in prompt
+    assert "203.0.113.10" not in prompt
     assert "related_case_ids" in prompt
     assert "sshd auth failure" in prompt
 
@@ -76,7 +76,7 @@ def test_build_prompt_includes_case_fields_and_propose_only():
 def test_build_prompt_without_api_url_auto_copy():
     prompt = build_investigation_prompt(_case(), api_url="")
     assert "final reply" in prompt.lower()
-    assert "192.168.50.254" not in prompt
+    assert "203.0.113.10" not in prompt
     assert "approve" in prompt.lower()
     assert "Do **not** call Wazuh" in prompt
 

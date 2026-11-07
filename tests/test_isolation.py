@@ -50,7 +50,7 @@ def test_plan_windows_uses_win_command() -> None:
 
 
 def test_plan_blocks_siem_agent() -> None:
-    plan = plan_host_isolation("pop-os-native", case_id=1)
+    plan = plan_host_isolation("siem-host", case_id=1)
     assert plan["allowed"] is False
     assert plan["reason"] == "protected_agent"
     assert plan["command"] is None

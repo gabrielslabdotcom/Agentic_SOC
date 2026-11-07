@@ -12,7 +12,14 @@ Wazuh indexer  →  incidents (SQLite)  →  meaning note  →  human outcome
 
 ### Telemetry
 
-[`scripts/autonomy_loop.py`](scripts/autonomy_loop.py) polls the Wazuh indexer. Detection content stays in Wazuh. Lab snippets for UFW and port-scan rules live under [`deploy/wazuh/`](deploy/wazuh/). Merge them into your manager if you want the same detections, and edit syslog `allowed-ips` for your own sources.
+[`scripts/autonomy_loop.py`](scripts/autonomy_loop.py) polls the Wazuh indexer. Detection content stays in Wazuh. Lab snippets live under [`deploy/wazuh/`](deploy/wazuh/) — see that README for the merge checklist:
+
+- UFW / port-scan rules and decoders (`local_rules.xml`, `local_decoder.xml`)
+- Linux agent group (FIM, auth/syslog, auditd, Pi-hole log tail, docker wodle)
+- Pi-hole DNS decoders/rules, auditd rules, docker-listener host patch
+- Host isolation active-response scripts
+
+Merge what you need into your manager, and edit syslog `allowed-ips` for your own sources.
 
 Default poll: `AUTONOMY_MIN_LEVEL=8`. Auth failures at Wazuh level 5 are included as well (`AUTONOMY_INCLUDE_AUTH`) without lowering that minimum. Lone UFW BLOCK rule `100100` is excluded. Aggregate port-scan rules `100101` and `100102` are the ones that open work.
 
@@ -22,7 +29,7 @@ Cases in [`src/agentic_soc/cases.py`](src/agentic_soc/cases.py) are incidents, n
 
 An alert joins an **open** incident that already has the same source IP or the same user, inside `AUTONOMY_INCIDENT_HOURS` (default 6). Group only when a source IP or user is present. Rule `2501` with no source IP stays its own case. Each alert id is still unique.
 
-`GET /tools/situation` groups open incidents by actor. The analyst UI shows that as **Happening now**. `find_related` is the SQLite entity lookup (same IP, user, hash, or domain). Host entities are excluded unless you ask for them, so every alert on one agent does not look related.
+`GET /tools/situation` groups open incidents by actor. The Inbox shows that as **Happening now** chips (notable activity). `find_related` is the SQLite entity lookup (same IP, user, hash, or domain). Host entities are excluded unless you ask for them, so every alert on one agent does not look related.
 
 ### Agent
 
@@ -59,17 +66,44 @@ The containment card is a dry-run UFW plan on the SIEM host. Execute runs only w
 
 ## Analyst UI
 
-The dashboard is the FastAPI app in [`src/agentic_soc/api.py`](src/agentic_soc/api.py) plus [`src/agentic_soc/static/index.html`](src/agentic_soc/static/index.html).
+The dashboard is a light React SPA built from [`frontend/`](frontend/) and served by FastAPI from [`src/agentic_soc/static/`](src/agentic_soc/static/). Routes are hash-based (`#/i/42`).
 
-- **Act now** — headline, actors, why, evidence, and three next steps from the brief
-- **Host isolation** — on a case that has an agent name: **Record isolation plan**, **Isolate host**, and **De-isolate host**. The panel shows the last isolate or de-isolate this app successfully sent for that agent, or “No isolation sent from this app.” That line is the last successful command, not a live firewall check.
-- **Happening now** — open incidents grouped by source IP or user
-- Queue counts — open, auto-closed, human-closed, suppressions
-- Rule suppressions — add or disable; confirmed compromise cannot create one
-- Outcome buttons — the same closing path as Discord
-- Investigation panel — meaning notes and, when the hook is on, the cloud reply
+| Page | What it shows |
+| ---- | ------------- |
+| **Inbox** (`#/`) | Metrics strip, Happening now chips, filterable investigation queue with bulk close |
+| **Investigation** (`#/i/:id`) | Narrative story + activity + signals, sticky context rail (people, host, indicators, related, HITL response), Resolve sheet for outcomes |
+| **Search** (`#/search`) | Ask Pop: natural-language questions over alerts, inventory, vulns, agents, and cases |
+| **Directory** | Users and Endpoints (segmented) |
+| **Exceptions** | Rule suppressions, add/disable, feedback suggestions |
+| **Settings** | Connectors forms and setup-token flow (wizard still opens when setup is not ready) |
 
-Pop’s UI banner says **LIVE Pop cases**. A workstation UI says **Mac local copy**.
+### Ask Pop (Search)
+
+Analysts type plain English on **Search**. Claude Haiku (Anthropic connector, kind `search_llm`) turns the question into typed, read-only tool calls. The backend builds allow-listed OpenSearch and SQLite queries; the model never writes DSL or SQL. The UI shows the answer, the tool steps Pop ran, and the real matching rows. Exposed as HTTP `POST /tools/search` and the dashboard — **not** on MCP yet.
+
+Coverage: `wazuh-alerts-*`, `wazuh-states-inventory-*`, `wazuh-states-vulnerabilities-*`, manager agents, and local cases. Raw non-alert archives are out of scope until Wazuh `logall_json` is enabled. Without an Anthropic key, Search falls back to keyword `simple_query_string` over alerts plus LIKE over cases.
+
+| LLM path | Connector | Used for |
+| -------- | --------- | -------- |
+| Meaning-note | Cursor or OpenAI-compatible chat | Incident explanation after open / severity rise |
+| Search | Anthropic (`search_llm`) | Ask Pop natural-language queries |
+
+Legacy hashes (`#/investigations`, `#/users`, `#/assets`, `#/rules`) redirect to the new routes.
+
+Analyst outcomes still only record status + note. Containment and isolation live on the Investigation context rail; execute buttons stay disabled unless the matching env flag is on, and still require a confirm dialog.
+
+Set `AGENTIC_SOC_INSTANCE=pop-live` on the SIEM host. The live banner says **LIVE SIEM-host cases**. A workstation clone defaults to **Local clone**.
+
+### Frontend build
+
+Committed `src/agentic_soc/static/` is enough for systemd and Docker. To change the UI:
+
+```bash
+cd frontend
+npm install
+npm run build          # writes into ../src/agentic_soc/static
+npm run dev            # Vite on :5173, proxies /tools to :8080
+```
 
 ## Two case databases
 
@@ -108,7 +142,7 @@ docker compose logs -f    # first boot prints: Setup token: …
 
 Open `http://<host>:8080/`. Paste the setup token. Enter your Wazuh manager API and indexer. If Wazuh is on the same machine, do not use `127.0.0.1` — that address is the container. Use the host’s LAN address or `host.docker.internal`.
 
-An LLM (Cursor or any OpenAI-compatible chat API), VirusTotal, and Discord are optional. You still bring your own Wazuh. This app does not install a SIEM. Containment stays off.
+Optional connectors: Cursor or OpenAI-compatible chat (meaning notes), Anthropic (Ask Pop search), VirusTotal, and Discord. You still bring your own Wazuh. This app does not install a SIEM. Containment stays off.
 
 The same **Connectors** page can change those settings later. Secrets are stored in `connectors.json` on the Compose volume and are not shown again after save.
 
@@ -116,13 +150,14 @@ The venv and systemd install below is the lab path. It keeps using `.env`.
 
 ## Quick start
 
-Wazuh is installed separately. Use the official [wazuh-docker](https://github.com/wazuh/wazuh-docker) single-node guide, or any manager and indexer you already run.
+Wazuh is installed separately. Use the official [wazuh-docker](https://github.com/wazuh/wazuh-docker) single-node guide, or any manager and indexer you already run. Lab target version is **4.14.10** (see [`deploy/wazuh/`](deploy/wazuh/) for rules, linux agent group, Pi-hole DNS, and auditd snippets). Windows Sysmon/agent upgrades are deferred.
 
 ### Prerequisites
 
 - Python **3.11+**
 - A reachable Wazuh manager API (`:55000`) and indexer (`:9200`)
-- Optional: Discord webhook or bot token, VirusTotal key, Cursor API key (see [`.env.example`](.env.example))
+- Optional for UI contributors: **Node 18+** and npm (see Frontend build)
+- Optional: Discord webhook or bot token, VirusTotal key, Cursor API key, Anthropic API key (see [`.env.example`](.env.example))
 
 ### Bootstrap
 
@@ -213,6 +248,7 @@ Higher roles include the rows above them. UFW execute also requires `CONTAINMENT
 | ---- | ---- | ------- |
 | `list_agents`, `list_alerts`, `get_alert` | reader | Wazuh inventory and alerts |
 | `get_case`, `list_cases`, `find_related`, `enrich_ioc` | reader | Case memory, correlation, VirusTotal |
+| `search` | reader | Ask Pop natural-language search (HTTP/dashboard only; not on MCP) |
 | `situation`, `queue_metrics`, `feedback_summary` | reader | Happening now, counts, human outcomes |
 | `list_suppressions`, `match_suppression`, `suppression_suggestions` | reader | Lookup only |
 | `containment_plan` (dry-run) | reader | UFW deny plan, no execution |
@@ -228,7 +264,7 @@ Higher roles include the rows above them. UFW execute also requires `CONTAINMENT
 
 Perimeter blocking (UFW deny of a source IP) stays on the SIEM host. Host isolation is different: the manager tells the **Wazuh agent on the endpoint** to apply a local firewall policy. That needs the scripts and manager commands in [`deploy/wazuh/active-response/`](deploy/wazuh/active-response/README.md) installed first. Linux and Windows use different command names. Nothing is bound to an alert rule.
 
-`HOST_ISOLATION_ENABLED` defaults to off. Turning it on only unlocks the dashboard **Isolate host** / **De-isolate host** buttons (and [`scripts/isolate_agent.py`](scripts/isolate_agent.py)). Confirmed compromise does not isolate. `pop-os-native` is always refused.
+`HOST_ISOLATION_ENABLED` defaults to off. Turning it on only unlocks the dashboard **Isolate host** / **De-isolate host** buttons (and [`scripts/isolate_agent.py`](scripts/isolate_agent.py)). Confirmed compromise does not isolate. The SIEM host agent (`siem-host` by default, plus `ISOLATION_PROTECT_AGENTS`) is always refused.
 
 A suspicious or true-positive brief that names an agent points the third next step at the Host isolation panel. The brief still says not to execute a deny or an isolation from the text itself. Briefs already stored on open cases stay as they were.
 
@@ -241,4 +277,4 @@ The analyst opens the case and confirms in the browser. [`scripts/isolate_agent.
 - Auto-containment, auto-isolation, or SOAR execution
 - API login or a second identity provider
 - A tunnel from public Cursor cloud into Wazuh or the lab API
-- Neo4j, Security Onion, or Hydra (Hydra breaks `sshd`)
+- Neo4j or Security Onion as the SIEM

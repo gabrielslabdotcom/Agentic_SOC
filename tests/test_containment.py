@@ -14,8 +14,9 @@ def test_plan_allows_external_attacker_ip() -> None:
     assert "sudo -n ufw insert 1 deny from 203.0.113.50" in plan["command"]
 
 
-def test_plan_blocks_pop_host() -> None:
-    plan = plan_block_source_ip("192.168.50.254", case_id=1)
+def test_plan_blocks_protected_siem_ip(monkeypatch) -> None:
+    monkeypatch.setenv("CONTAINMENT_PROTECT_IPS", "203.0.113.10")
+    plan = plan_block_source_ip("203.0.113.10", case_id=1)
     assert plan["allowed"] is False
     assert plan["reason"] == "protected_lab_host"
     assert plan["command"] is None

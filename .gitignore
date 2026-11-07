@@ -1,5 +1,8 @@
 .env
 docs/LAB_LOCAL.md
+deploy/HARDENING.md
+scripts/lab_status.py
+scripts/tunnel_pop_dashboard.sh
 .venv/
 venv/
 __pycache__/
@@ -16,6 +19,8 @@ data/setup_token
 dist/
 build/
 .DS_Store
+frontend/node_modules/
+frontend/dist/
 # Keep project MCP config; never commit secrets into it
 !.cursor/
 !.cursor/mcp.json

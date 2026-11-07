@@ -1,0 +1,28 @@
+--- DockerListener.stock
++++ DockerListener
+@@ -15,14 +15,21 @@
+ import time
+ from os.path import abspath, dirname
+ 
+-sys.path.insert(0, dirname(dirname(abspath(__file__))))
+-from utils import MAX_EVENT_SIZE
+-
++# Import the Docker SDK before putting wodles/ on sys.path.
++# Otherwise this directory (wodles/docker) shadows the pip 'docker' package
++# and from_env() fails forever (reconnect loop -> String limit reached).
++# Re-apply after wazuh-agent package upgrades overwrite this file.
+ try:
+     import docker
+-except:
+-    sys.stderr.write("'docker' module needs to be installed. Execute 'pip3 install docker' to do it.\n")
++except Exception:
++    sys.stderr.write("'docker' module needs to be installed. Execute 'pip3 install docker==7.1.0' to do it.\n")
+     exit(1)
+ 
++sys.path.insert(0, dirname(dirname(abspath(__file__))))
++from utils import MAX_EVENT_SIZE
++
++
+ class DockerListener:
+     wait_time = 5
+     field_debug_name = "Wodle event"

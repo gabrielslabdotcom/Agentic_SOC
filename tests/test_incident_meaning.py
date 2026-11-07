@@ -134,12 +134,12 @@ def test_meaning_note_has_four_parts(tmp_path: Path) -> None:
 
 def test_prompt_is_packet_only() -> None:
     packet = {"case_id": 4, "brief": {"headline": "Repeated UFW blocks"}, "related_case_ids": [9]}
-    prompt = build_investigation_prompt({"id": 4}, api_url="http://192.168.50.254:8080", packet=packet)
+    prompt = build_investigation_prompt({"id": 4}, api_url="http://203.0.113.10:8080", packet=packet)
     assert "Repeated UFW blocks" in prompt
     assert "related_case_ids" in prompt
     assert "Do **not** call Wazuh" in prompt
     assert "Do **not** approve" in prompt
-    assert "192.168.50.254" not in prompt
+    assert "203.0.113.10" not in prompt
     assert "update_case" not in prompt
     assert "execute_containment" not in prompt
 

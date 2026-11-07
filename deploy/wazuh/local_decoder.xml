@@ -26,3 +26,25 @@
   <regex type="pcre2">DROP IN=(\S+).*SRC=(\S+) DST=(\S+)</regex>
   <order>dstif, srcip, dstip</order>
 </decoder>
+
+<!--
+  Pi-hole file logs omit a hostname; Wazuh stores dnsmasq[pid]: as hostname.
+  Prematch the message body without a leading ^ (possible leading whitespace).
+-->
+<decoder name="pihole-query">
+  <prematch type="pcre2">query\[</prematch>
+  <regex type="pcre2">query\[(\w+)\] (\S+) from (\S+)</regex>
+  <order>protocol, url, srcip</order>
+</decoder>
+
+<decoder name="pihole-gravity-block">
+  <prematch type="pcre2">gravity blocked|/etc/pihole/(?:gravity|black)\.list</prematch>
+  <regex type="pcre2">(?:gravity blocked |/etc/pihole/(?:gravity|black)\.list )(\S+) is (0\.0\.0\.0|::)</regex>
+  <order>url, dstip</order>
+</decoder>
+
+<decoder name="pihole-nxdomain">
+  <prematch type="pcre2">reply \S+ is NXDOMAIN</prematch>
+  <regex type="pcre2">reply (\S+) is NXDOMAIN</regex>
+  <order>url</order>
+</decoder>

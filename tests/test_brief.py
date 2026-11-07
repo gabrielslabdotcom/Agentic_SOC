@@ -56,9 +56,9 @@ def test_sshd_from_ip_and_invalid_user() -> None:
 
 def test_pam_user_and_rhost() -> None:
     alert = _alert(
-        full_log="pam_unix(sshd:auth): authentication failure; rhost=192.168.50.20 user=admin",
+        full_log="pam_unix(sshd:auth): authentication failure; rhost=203.0.113.20 user=admin",
     )
-    assert extract_source_ip(alert) == "192.168.50.20"
+    assert extract_source_ip(alert) == "203.0.113.20"
     assert extract_user(alert) == "admin"
 
 
@@ -92,7 +92,7 @@ def test_windows_eventdata_ignores_loopback_and_machine_account() -> None:
             "win": {
                 "eventdata": {
                     "ipAddress": "::1",
-                    "targetUserName": "HYDRA-DC$",
+                    "targetUserName": "domain-controller$",
                 }
             }
         },
@@ -132,7 +132,7 @@ def test_brief_has_three_steps_and_no_execute() -> None:
 
 
 def test_suspicious_agent_brief_names_host_isolation() -> None:
-    alert = _alert(agent="Win10-SOC", full_log="suspicious process")
+    alert = _alert(agent="soc-windows", full_log="suspicious process")
     brief = build_analyst_brief(
         alert,
         {
@@ -143,7 +143,7 @@ def test_suspicious_agent_brief_names_host_isolation() -> None:
     )
     assert len(brief["do_next"]) == 3
     joined = " ".join(brief["do_next"]).lower()
-    assert "host isolation for win10-soc" in joined
+    assert "host isolation for soc-windows" in joined
     assert "do not execute" in joined
 
 

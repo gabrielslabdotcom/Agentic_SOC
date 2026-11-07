@@ -1,4 +1,5 @@
 # Paths below are host-specific — edit WorkingDirectory / EnvironmentFile for your install ($AGENTIC_SOC_HOME).
+# Template uses /opt/agentic-soc — replace with your install path before enabling.
 [Unit]
 Description=Agentic SOC analyst dashboard (FastAPI)
 After=network-online.target
@@ -6,16 +7,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/admin/Agentic_SOC
+WorkingDirectory=/opt/agentic-soc
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/home/admin/Agentic_SOC/src
-EnvironmentFile=-/home/admin/Agentic_SOC/.env
+Environment=PYTHONPATH=/opt/agentic-soc/src
+EnvironmentFile=-/opt/agentic-soc/.env
+Environment=AGENTIC_SOC_INSTANCE=pop-live
 # Bind on all interfaces. Access control is UFW: TCP 8080 only from
 # allowlisted analyst IPs. Do not allow the whole SIEM LAN subnet —
 # that suppresses port-scan BLOCK detections. The API has no login.
 # Live URL: http://<SIEM_HOST>:8080/
-# Optional fallback: ./scripts/tunnel_pop_dashboard.sh → http://127.0.0.1:8081/
-ExecStart=/home/admin/Agentic_SOC/.venv/bin/uvicorn agentic_soc.api:app --host 0.0.0.0 --port 8080
+ExecStart=/opt/agentic-soc/.venv/bin/uvicorn agentic_soc.api:app --host 0.0.0.0 --port 8080
 Restart=on-failure
 RestartSec=15
 Nice=10

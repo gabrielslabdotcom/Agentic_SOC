@@ -2,7 +2,7 @@
 
 These scripts run **on the endpoint**, triggered by the Wazuh manager API. They are not wired to any alert rule. Agentic SOC sends the command only after `HOST_ISOLATION_ENABLED=true` and an analyst confirm.
 
-`pop-os-native` (the SIEM host) must not get these scripts applied as an isolation target. The app refuses that agent name even if the scripts are present.
+The SIEM host agent (`siem-host` by default, or names in `ISOLATION_PROTECT_AGENTS`) must not get these scripts applied as an isolation target. The app refuses protected agent names even if the scripts are present.
 
 ## 1. Config on every agent you might isolate
 

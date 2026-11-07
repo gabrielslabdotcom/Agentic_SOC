@@ -41,7 +41,7 @@ def _alert(
         raw["data"] = data
     return {
         "id": f"t-{rule_id}",
-        "agent": "pop-os-native",
+        "agent": "siem-host",
         "rule_id": rule_id,
         "rule_level": rule_level,
         "description": description,
@@ -79,9 +79,9 @@ def test_lone_ufw_block_skipped():
         rule_id=RULE_UFW_BLOCK,
         rule_level=5,
         description="UFW firewall block event.",
-        full_log="[UFW BLOCK] SRC=192.168.50.9 DST=192.168.50.254 DPT=8080",
+        full_log="[UFW BLOCK] SRC=203.0.113.9 DST=203.0.113.10 DPT=8080",
         groups=["firewall"],
-        data={"srcip": "192.168.50.9"},
+        data={"srcip": "203.0.113.9"},
     )
     j = score_alert(alert)
     assert j["disposition"] in ("informational", "false_positive")
@@ -178,7 +178,7 @@ def test_autonomy_journal_self_ingest_skipped():
         rule_level=5,
         description="syslog: User authentication failure.",
         full_log=(
-            "Sep 09 07:40:01 pop-os python[325652]: 2026-09-09T07:40:01 INFO "
+            "Sep 09 07:40:01 siem-host python[325652]: 2026-09-09T07:40:01 INFO "
             "autonomy_loop: opened case #654 disposition=suspicious | "
             "syslog: User authentication failure."
         ),
@@ -197,7 +197,7 @@ def test_agentic_soc_logger_self_ingest_skipped():
         rule_level=5,
         description="syslog: User authentication failure.",
         full_log=(
-            "Sep 13 12:00:00 pop-os python: agentic_soc.tools: "
+            "Sep 13 12:00:00 siem-host python: agentic_soc.tools: "
             "opened case #12 syslog: User authentication failure."
         ),
         groups=["syslog"],
@@ -212,7 +212,7 @@ def test_asus_httpd_success_and_igmp_drop_are_router_noise():
         rule_id="100201",
         rule_level=3,
         description="ASUS web admin login success.",
-        full_log="Sep 13 12:42:24 HTTPD: [LOGIN] [http][Web] success (192.168.50.187)",
+        full_log="Sep 13 12:42:24 HTTPD: [LOGIN] [http][Web] success (203.0.113.187)",
         groups=["asus", "authentication_success"],
     )
     j = score_alert(login)
@@ -263,7 +263,7 @@ def test_successful_sudo_skipped():
         rule_id="5402",
         rule_level=3,
         description="Successful sudo to ROOT executed.",
-        full_log="sudo: admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/apt",
+        full_log="sudo: admin : TTY=pts/0 ; PWD=/home/analyst ; USER=root ; COMMAND=/usr/bin/apt",
         groups=["syslog", "sudo"],
     )
     assert is_successful_sudo(alert) is True
