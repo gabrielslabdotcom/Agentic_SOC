@@ -10,6 +10,7 @@ from agentic_soc.triage import (
     RULE_PORT_SCAN_LAB,
     RULE_PORT_SCAN_MULTI,
     RULE_UFW_BLOCK,
+    is_auditd_promiscuous_noise,
     is_auto_close_noise,
     is_router_noise,
     is_successful_sudo,
@@ -169,6 +170,40 @@ def test_hydra_style_auth_burst_opens():
     j = score_alert(alert)
     assert j["disposition"] == "suspicious"
     assert should_open_case(alert, j)["open"] is True
+
+
+def test_auditd_promiscuous_mode_skipped():
+    """Wazuh 80710 (Docker bridge/veth ANOM_PROMISCUOUS) must not open HITL."""
+    alert = _alert(
+        rule_id="80710",
+        rule_level=10,
+        description="Auditd: Device enables promiscuous mode.",
+        full_log=(
+            "type=ANOM_PROMISCUOUS msg=audit(1762521900.123:999): "
+            "dev=veth84b40d0 prom=256 old_prom=0 auid=4294967295 uid=0"
+        ),
+        groups=["audit", "audit_anom"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "false_positive"
+    assert j["severity"] == "low"
+    assert is_auditd_promiscuous_noise(alert) is True
+    gate = should_open_case(alert, j)
+    assert gate["open"] is False
+    assert gate["reason"] == "auditd_promiscuous_noise"
+
+
+def test_kernel_promiscuous_mode_skipped():
+    alert = _alert(
+        rule_id="5104",
+        rule_level=8,
+        description="Interface entered in promiscuous(sniffing) mode.",
+        groups=["kernel"],
+    )
+    j = score_alert(alert)
+    assert j["disposition"] == "false_positive"
+    assert is_auditd_promiscuous_noise(alert) is True
+    assert should_open_case(alert, j)["open"] is False
 
 
 def test_autonomy_journal_self_ingest_skipped():

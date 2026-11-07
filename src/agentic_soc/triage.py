@@ -70,6 +70,17 @@ AD_ATTACK_RULES = frozenset(
 ROUTER_NOISE_RULE_IDS = frozenset(
     {RULE_ASUS_SYSLOG, RULE_ASUS_WEB_LOGIN_OK, RULE_ASUS_KERNEL_DROP}
 )
+# Stock Wazuh: Docker/libvirt bridge/veth ANOM_PROMISCUOUS (and kernel twin)
+RULE_AUDITD_PROMISCUOUS = "80710"
+RULE_KERNEL_PROMISCUOUS = "5104"
+AUDITD_PROMISCUOUS_RULE_IDS = frozenset(
+    {RULE_AUDITD_PROMISCUOUS, RULE_KERNEL_PROMISCUOUS}
+)
+_PROMISCUOUS_NOISE_PATTERNS = (
+    "device enables promiscuous mode",
+    "interface entered in promiscuous",
+    "promiscuous(sniffing) mode",
+)
 _ROUTER_NOISE_PATTERNS = (
     "bwdpi:",
     "hour monitor:",
@@ -395,6 +406,15 @@ def is_agent_capacity_noise(alert: dict[str, Any]) -> bool:
     return False
 
 
+def is_auditd_promiscuous_noise(alert: dict[str, Any]) -> bool:
+    """Docker/libvirt bridge/veth promiscuous-mode alerts — lab noise, not HITL."""
+    rid = _rule_id(alert)
+    if rid in AUDITD_PROMISCUOUS_RULE_IDS:
+        return True
+    blob = f"{_description(alert)} {(alert.get('full_log') or '')}".lower()
+    return any(p in blob for p in _PROMISCUOUS_NOISE_PATTERNS)
+
+
 def is_auth_failure(alert: dict[str, Any]) -> bool:
     desc = _description(alert)
     groups = _rule_groups(alert)
@@ -521,6 +541,13 @@ def should_open_case(
             "cluster_size": None,
         }
 
+    if is_auditd_promiscuous_noise(alert):
+        return {
+            "open": False,
+            "reason": "auditd_promiscuous_noise",
+            "cluster_size": None,
+        }
+
     if is_router_noise(alert):
         return {
             "open": False,
@@ -604,6 +631,19 @@ def score_alert(alert: dict[str, Any], enrichments: Optional[list[dict[str, Any]
         return {
             "disposition": "false_positive",
             "confidence": 0.95,
+            "severity": "low",
+            "score": 0.0,
+            "reasons": reasons,
+            "recommended_action": _recommend_action("false_positive", level_i, 0),
+        }
+
+    if is_auditd_promiscuous_noise(alert):
+        reasons.append(
+            "auditd/kernel promiscuous-mode (Docker/libvirt bridge/veth lab noise)"
+        )
+        return {
+            "disposition": "false_positive",
+            "confidence": 0.9,
             "severity": "low",
             "score": 0.0,
             "reasons": reasons,
